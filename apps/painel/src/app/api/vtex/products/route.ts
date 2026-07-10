@@ -1,0 +1,20 @@
+import type { Product } from '@/types/api'
+
+const PRODUCTS: Product[] = [
+  { item: 'SKU-DRESS-001', title: 'Vestido Midi Floral', link: 'https://hope.com.br/vestido-midi-floral', image: null, category: 'Vestidos', available: true, description: 'Vestido midi estampado em viscose leve', price: 299.9, msrp: 349.9, group_id: 'GRP-DRESS', c_stock: 47, c_sku_id: 'SKU-DRESS-001', c_product_id: 'PROD-1001' },
+  { item: 'SKU-SHIRT-012', title: 'Camisa Linho Slim', link: 'https://hope.com.br/camisa-linho-slim', image: null, category: 'Camisas', available: true, description: 'Camisa masculina em linho com corte slim', price: 189.5, msrp: 229.0, group_id: 'GRP-SHIRT', c_stock: 112, c_sku_id: 'SKU-SHIRT-012', c_product_id: 'PROD-1012' },
+  { item: 'SKU-PANTS-007', title: 'Calça Alfaiataria', link: 'https://hope.com.br/calca-alfaiataria', image: null, category: 'Calças', available: true, description: 'Calça de alfaiataria com cinto incluso', price: 349.0, msrp: 399.0, group_id: 'GRP-PANTS', c_stock: 33, c_sku_id: 'SKU-PANTS-007', c_product_id: 'PROD-1007' },
+  { item: 'SKU-BAG-023', title: 'Bolsa Couro Estruturada', link: 'https://resort.com.br/bolsa-couro', image: null, category: 'Bolsas', available: true, description: 'Bolsa em couro genuíno com alça removível', price: 459.9, msrp: 529.9, group_id: 'GRP-BAG', c_stock: 8, c_sku_id: 'SKU-BAG-023', c_product_id: 'PROD-2023' },
+  { item: 'SKU-JACKET-004', title: 'Jaqueta Jeans Premium', link: 'https://resort.com.br/jaqueta-jeans', image: null, category: 'Jaquetas', available: true, description: 'Jaqueta jeans com lavagem premium e detalhes bordados', price: 599.0, msrp: 679.0, group_id: 'GRP-OUTER', c_stock: 21, c_sku_id: 'SKU-JACKET-004', c_product_id: 'PROD-2004' },
+  { item: 'SKU-SHOES-018', title: 'Sapatilha Couro Bico Fino', link: 'https://hope.com.br/sapatilha-bico-fino', image: null, category: 'Calçados', available: true, description: 'Sapatilha clássica em couro com palmilha confort', price: 279.9, msrp: 319.9, group_id: 'GRP-SHOES', c_stock: 5, c_sku_id: 'SKU-SHOES-018', c_product_id: 'PROD-1018' },
+  { item: 'SKU-DRESS-033', title: 'Vestido Slip Cetim', link: 'https://resort.com.br/vestido-slip', image: null, category: 'Vestidos', available: true, description: 'Vestido slip em cetim com alças finas', price: 419.5, msrp: 469.5, group_id: 'GRP-DRESS', c_stock: 18, c_sku_id: 'SKU-DRESS-033', c_product_id: 'PROD-2033' },
+  { item: 'SKU-SKIRT-009', title: 'Saia Midi Plissada', link: 'https://hope.com.br/saia-midi-plissada', image: null, category: 'Saias', available: true, description: 'Saia midi plissada em crepe leve', price: 219.0, msrp: 259.0, group_id: 'GRP-SKIRT', c_stock: 64, c_sku_id: 'SKU-SKIRT-009', c_product_id: 'PROD-1009' },
+  { item: 'SKU-TOP-045', title: 'Top Cropped Frente Única', link: 'https://hope.com.br/top-cropped', image: null, category: 'Tops', available: true, description: 'Top cropped em malha com frente única e tiras', price: 149.9, msrp: 179.9, group_id: 'GRP-TOP', c_stock: 89, c_sku_id: 'SKU-TOP-045', c_product_id: 'PROD-1045' },
+  { item: 'SKU-COAT-002', title: 'Casaco Oversize Lã', link: 'https://resort.com.br/casaco-oversize', image: null, category: 'Casacos', available: false, description: 'Casaco oversized em lã merino importada', price: 789.0, msrp: 899.0, group_id: 'GRP-OUTER', c_stock: 0, c_sku_id: 'SKU-COAT-002', c_product_id: 'PROD-2002' },
+  { item: 'SKU-BELT-011', title: 'Cinto Couro Trançado', link: 'https://hope.com.br/cinto-trancado', image: null, category: 'Acessórios', available: true, description: 'Cinto trançado em couro legítimo com fivela dourada', price: 89.9, msrp: 109.9, group_id: 'GRP-ACC', c_stock: 143, c_sku_id: 'SKU-BELT-011', c_product_id: 'PROD-1011' },
+  { item: 'SKU-ACC-077', title: 'Lenço Seda Estampado', link: 'https://resort.com.br/lenco-seda', image: null, category: 'Acessórios', available: true, description: 'Lenço 100% seda com estampa geométrica exclusiva', price: 129.0, msrp: 149.0, group_id: 'GRP-ACC', c_stock: 37, c_sku_id: 'SKU-ACC-077', c_product_id: 'PROD-2077' },
+]
+
+export async function GET() {
+  return Response.json({ products: PRODUCTS })
+}

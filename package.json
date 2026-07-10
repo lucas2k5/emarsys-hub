@@ -1,0 +1,14 @@
+{
+  "name": "emarsys-hub",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Plataforma multi-tenant de integração VTEX ↔ Emarsys",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:api": "pnpm --filter @emarsys-hub/api dev",
+    "dev:painel": "pnpm --filter @emarsys-hub/painel dev",
+    "build": "pnpm -r build"
+  }
+}

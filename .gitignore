@@ -1,0 +1,17 @@
+node_modules/
+.next/
+dist/
+build/
+*.log
+logs/
+.env
+.env.local
+.env.*.local
+.DS_Store
+coverage/
+.turbo/
+
+# Configs locais de agentes/IDE (a skill em .claude/skills é commitada)
+.claude/settings.local.json
+.agents/
+.cursor/
