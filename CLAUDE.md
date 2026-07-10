@@ -24,9 +24,9 @@ Plano macro completo (schema, decisões, 6 fases): **`docs/PLANO.md`** — leia 
 | 0 — Fundação (scaffold, compose, painel em mock) | ✅ concluída |
 | 1 — Tenancy + crypto + auth + CRUD `/clientes` + seletor `[tenant]` | ✅ implementada, revisada pelo code-reviewer, correções aplicadas |
 | 2 — Motor produtos/pedidos (copiar do Altenburg, parametrizar por environment, scheduler dinâmico, 11 endpoints de dados com filtro por tenant) | ✅ implementada, revisada pelo code-reviewer, correções aplicadas |
-| 3 — Contatos dedupe (transplantar use cases do hope-clients-connector; fila Postgres com backoff + dead-letter) | ✅ implementada, verificada por roundtrip curl (webhook → 2 environments, backoff, dead-letter); pendente code review |
-| 4 — Wishlist (porte TS do Java; corrigir checkpoint que não filtrava o scroll) | ✅ implementada, verificada com mock VTEX/Emarsys local (incremental real: checkpoint filtra e avança); sem code review (decisão do usuário) |
-| 5 — Produção (produto genérico) | 🟡 **cutover CANCELADO (decisão do usuário, 10/07/2026)** — sem migração de Hope/Altenburg; falta: deploy VPS (HTTPS obrigatório p/ cookie), hardening (testes, review 3-4, commit inicial). `import:env` fica como ferramenta genérica opcional |
+| 3 — Contatos dedupe (transplantar use cases do hope-clients-connector; fila Postgres com backoff + dead-letter) | ✅ implementada, verificada por roundtrip curl (webhook → 2 environments, backoff, dead-letter); code review aplicado em 10/07 (2 bloqueadores + 6 importantes corrigidos) |
+| 4 — Wishlist (porte TS do Java; corrigir checkpoint que não filtrava o scroll) | ✅ implementada, verificada com mock local, code review aplicado em 10/07 |
+| 5 — Produção (produto genérico) | 🟡 **cutover CANCELADO** (10/07). Stack escolhida: **Supabase (Postgres) + Vercel**. Feito: commit inicial, testes (vitest, 32), review 3-4 aplicado, Supabase provisionado (projeto `emarsys-hub`, sa-east-1, RLS deny-all, 6 migrations), API refatorada p/ serverless (`ensureInit`, `runInBackground`/waitUntil, tick `/internal/cron/tick` com `CRON_SECRET`, rate limit no webhook, pool SSL/2 conns na Vercel, `apps/api/vercel.json` + wrapper `api/index.js`). Falta: importar os 2 projetos na Vercel (dashboard), configurar envs, pinger externo por minuto no tick |
 
 ## Stack e estrutura
 

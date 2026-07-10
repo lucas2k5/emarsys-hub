@@ -60,10 +60,13 @@ export async function scrollWishlists(
   size: number,
   mdToken: string | null,
 ): Promise<ScrollPage> {
+  // O Master Data não aceita parâmetros posicionais — sanitiza o ISO antes de
+  // interpolar (a fonte é o checkpoint do banco, mas defesa em profundidade)
+  const safeCheckpoint = checkpointISO.replace(/[^0-9TZ:.+-]/g, '');
   const params: Record<string, string | number> = {
     _fields: 'id,email,ListItemsWrapper,updatedIn',
     // Correção do bug do original: o checkpoint entra no filtro
-    _where: `email<>"" AND updatedIn>"${checkpointISO}"`,
+    _where: `email<>"" AND updatedIn>"${safeCheckpoint}"`,
     _sort: 'updatedIn ASC',
     _size: size,
     _schema: entity,
@@ -171,8 +174,9 @@ export class EmarsysWishlistSender {
     };
 
     const response = await this.client.post<WishlistUpdateResponse>('/api/v3/wishlist/update', body);
+    // Mesmo padrão do gateway de contatos: qualquer replyCode != 0 é erro
     const { replyCode, replyText } = response.data ?? {};
-    if (replyText !== 'OK' && replyCode !== 0) {
+    if (replyCode !== undefined && replyCode !== 0) {
       throw new Error(`Emarsys wishlist/update falhou: [${replyCode}] ${replyText}`);
     }
   }

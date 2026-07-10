@@ -214,8 +214,11 @@ console.log(`   Origem: ${envFile}`);
 console.log(`   Tenant: ${tenantSlug} ("${tenantName}") → Environment: ${envSlug} ("${envName}")\n`);
 for (const conn of connections) {
   const secretKeys = Object.keys(conn.secrets);
+  // appKey é parte da credencial VTEX — mascara no relatório (logs de CI/CD)
+  const printable = { ...conn.config };
+  if (printable.appKey) printable.appKey = `***${printable.appKey.slice(-4)}`;
   console.log(`   🔌 ${conn.kind}`);
-  console.log(`      config : ${JSON.stringify(conn.config)}`);
+  console.log(`      config : ${JSON.stringify(printable)}`);
   console.log(`      secrets: ${secretKeys.length ? secretKeys.join(', ') + ' (criptografados, não exibidos)' : '(nenhum)'}`);
 }
 console.log(`\n   🗓️ Flows (todos DESABILITADOS, settings.debug=true):`);

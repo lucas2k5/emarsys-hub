@@ -16,6 +16,7 @@ export type ContactRow = {
   email: string | null;
   cpf: string | null;
   payload: ContactPayload;
+  fan_out: boolean;
   status: 'pending' | 'processing' | 'sent' | 'failed' | 'dead';
   attempts: number;
   last_error: string | null;
@@ -25,14 +26,18 @@ function fmtDate(d: Date | null | undefined): string | null {
   return d instanceof Date && !isNaN(d.getTime()) ? d.toISOString().slice(0, 10) : null;
 }
 
-export async function enqueueContact(environmentId: string, payload: ContactPayload): Promise<number> {
+export async function enqueueContact(
+  environmentId: string,
+  payload: ContactPayload,
+  fanOut = false,
+): Promise<number> {
   const pool = getPool();
   const { rows } = await pool.query(
     `INSERT INTO contacts (
        environment_id, customer_id, email, cpf, first_name, last_name, bday,
        phone, mobile, gender, address, city, state, country, postal_code,
-       opt_in, payload, status
-     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,'pending')
+       opt_in, payload, fan_out, status
+     ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,'pending')
      RETURNING id`,
     [
       environmentId,
@@ -52,6 +57,7 @@ export async function enqueueContact(environmentId: string, payload: ContactPayl
       payload.postal_code ?? null,
       payload.opt_in ?? null,
       JSON.stringify(payload),
+      fanOut,
     ],
   );
   return (rows[0] as { id: number }).id;
@@ -74,7 +80,7 @@ export async function claimBatch(environmentId: string, batchSize: number): Prom
        LIMIT $2
        FOR UPDATE SKIP LOCKED
      )
-     RETURNING id, environment_id, customer_id, email, cpf, payload, status, attempts, last_error`,
+     RETURNING id, environment_id, customer_id, email, cpf, payload, fan_out, status, attempts, last_error`,
     [environmentId, batchSize],
   );
   return rows as ContactRow[];
@@ -103,7 +109,8 @@ export async function markFailed(
        attempts = attempts + 1,
        last_error = $2,
        status = CASE WHEN attempts + 1 >= $3 THEN 'dead' ELSE 'failed' END,
-       next_attempt_at = NOW() + make_interval(secs => $4 * POWER(2, attempts)),
+       -- teto de 30 dias: sem LEAST, attempts alto estoura o range do interval
+       next_attempt_at = NOW() + make_interval(secs => LEAST($4 * POWER(2, attempts), 2592000)),
        updated_at = NOW()
      WHERE id = $1
      RETURNING status`,
@@ -112,13 +119,18 @@ export async function markFailed(
   return (rows[0] as { status: 'failed' | 'dead' }).status;
 }
 
-/** Runs interrompidos no meio (restart) voltam pra fila. */
-export async function releaseStuckProcessing(olderThanMinutes = 30): Promise<number> {
+/**
+ * Runs interrompidos no meio (restart) voltam pra fila.
+ * Escopado por environment — sem isso um worker resetaria itens legitimamente
+ * em 'processing' de OUTRO environment (processamento duplicado).
+ */
+export async function releaseStuckProcessing(environmentId: string, olderThanMinutes = 30): Promise<number> {
   const pool = getPool();
   const { rowCount } = await pool.query(
     `UPDATE contacts SET status = 'failed', updated_at = NOW()
-     WHERE status = 'processing' AND updated_at < NOW() - make_interval(mins => $1)`,
-    [olderThanMinutes],
+     WHERE environment_id = $1 AND status = 'processing'
+       AND updated_at < NOW() - make_interval(mins => $2)`,
+    [environmentId, olderThanMinutes],
   );
   return rowCount ?? 0;
 }

@@ -19,12 +19,13 @@
  */
 
 import { Router, type Request, type Response } from 'express';
-import { timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual, createHash } from 'node:crypto';
 import { getPool } from '../db/pool.js';
 import { contactPayloadSchema } from '../modules/contacts/types.js';
 import { enqueueContact } from '../modules/contacts/repo.js';
 import { runContactsSync } from '../modules/contacts/worker.js';
 import { decryptSecrets } from '../tenancy/crypto.js';
+import { runInBackground } from '../lib/background.js';
 
 export const webhooksRouter = Router();
 
@@ -32,11 +33,12 @@ function ts(): string {
   return new Date().toISOString();
 }
 
+// Compara hashes de tamanho fixo — sem early-return por comprimento, que
+// vazaria o tamanho do token esperado via timing.
 function safeEqual(a: string, b: string): boolean {
-  const bufA = Buffer.from(a);
-  const bufB = Buffer.from(b);
-  if (bufA.length !== bufB.length) return false;
-  return timingSafeEqual(bufA, bufB);
+  const hashA = createHash('sha256').update(a).digest();
+  const hashB = createHash('sha256').update(b).digest();
+  return timingSafeEqual(hashA, hashB);
 }
 
 type WebhookTarget = {
@@ -75,8 +77,9 @@ webhooksRouter.post('/contacts/:tenantSlug', async (req: Request, res: Response)
   try {
     const targets = await loadWebhookTargets(req.params.tenantSlug);
     if (targets.length === 0) {
-      // 404 genérico — não revela se o tenant existe
-      res.status(404).json({ success: false, error: 'Não encontrado', timestamp: ts() });
+      // 401 idêntico ao de token inválido — 404 aqui permitiria enumerar
+      // quais slugs de tenant existem no sistema
+      res.status(401).json({ success: false, error: 'Não autorizado', timestamp: ts() });
       return;
     }
 
@@ -123,19 +126,16 @@ webhooksRouter.post('/contacts/:tenantSlug', async (req: Request, res: Response)
     }
 
     const enqueued: Array<{ environment: string; contactId: number }> = [];
+    const isFanOut = selected.length > 1;
     for (const target of selected) {
-      const contactId = await enqueueContact(target.environmentId, parsed.data);
+      const contactId = await enqueueContact(target.environmentId, parsed.data, isFanOut);
       enqueued.push({ environment: target.envSlug, contactId });
     }
 
     // Processamento imediato em background (guarda de sobreposição interna
-    // evita concorrer com o worker agendado)
+    // evita concorrer com o worker agendado; compatível com serverless)
     for (const target of selected) {
-      setImmediate(() => {
-        runContactsSync(target.environmentId, 'manual').catch(() => {
-          /* falhas ficam registradas em sync_runs/na fila */
-        });
-      });
+      runInBackground(() => runContactsSync(target.environmentId, 'manual'), 'webhook:contacts');
     }
 
     res.status(202).json({

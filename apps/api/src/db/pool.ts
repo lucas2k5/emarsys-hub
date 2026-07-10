@@ -13,11 +13,16 @@ export function getPool(): pg.Pool {
   if (!_pool) {
     const connStr = process.env.DATABASE_URL;
     if (!connStr) throw new Error('DATABASE_URL não definida');
+    // Supabase exige TLS; a cadeia é assinada por CA própria → sem verificação
+    // estrita (tráfego segue criptografado). Em serverless o pool precisa ser
+    // pequeno — cada instância da função abre o seu.
+    const isSupabase = connStr.includes('.supabase.co') || connStr.includes('.pooler.supabase.com');
     _pool = new Pool({
       connectionString: connStr,
-      max: 10,
+      max: Number(process.env.PG_POOL_MAX ?? (process.env.VERCEL ? 2 : 10)),
       idleTimeoutMillis: 30_000,
-      connectionTimeoutMillis: 5_000,
+      connectionTimeoutMillis: 10_000,
+      ssl: isSupabase ? { rejectUnauthorized: false } : undefined,
     });
   }
   return _pool;

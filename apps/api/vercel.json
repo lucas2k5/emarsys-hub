@@ -1,0 +1,19 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "installCommand": "npm install --workspaces=false",
+  "buildCommand": "npm run build",
+  "framework": null,
+  "rewrites": [{ "source": "/(.*)", "destination": "/api" }],
+  "functions": {
+    "api/index.js": {
+      "maxDuration": 300,
+      "includeFiles": "dist/**"
+    }
+  },
+  "crons": [
+    {
+      "path": "/internal/cron/tick",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

@@ -149,6 +149,58 @@ export function stopScheduler(): void {
   jobs.clear();
 }
 
+/**
+ * Modo serverless (tick): executa AGORA todos os flows habilitados cujo cron
+ * venceu desde a última execução. Chamado pelo endpoint /internal/cron/tick
+ * (Vercel Cron ou pinger externo) — substitui o processo contínuo do croner.
+ * Sequencial de propósito: serverless não deve paralelizar syncs longos.
+ */
+export async function runDueFlows(): Promise<Array<{ flow: string; env: string; result: string }>> {
+  const rows = await fetchEnabledFlows();
+  const pool = getPool();
+  const executed: Array<{ flow: string; env: string; result: string }> = [];
+
+  for (const row of rows) {
+    let due = false;
+    try {
+      const { rows: flowRows } = await pool.query(
+        'SELECT last_run_at FROM environment_flows WHERE environment_id = $1 AND flow = $2',
+        [row.environment_id, row.flow],
+      );
+      const lastRunAt = (flowRows[0] as { last_run_at: Date | null } | undefined)?.last_run_at ?? null;
+      if (!lastRunAt) {
+        due = true;
+      } else {
+        const next = new Cron(row.cron_expression, { timezone: TIMEZONE }).nextRun(lastRunAt);
+        due = next !== null && next.getTime() <= Date.now();
+      }
+    } catch (err) {
+      console.error(
+        `❌ [tick] Cron inválido em ${row.tenant_slug}/${row.env_slug}:${row.flow}:`,
+        err instanceof Error ? err.message : err,
+      );
+      continue;
+    }
+
+    if (!due) continue;
+
+    const tag = `${row.tenant_slug}/${row.env_slug}:${row.flow}`;
+    try {
+      if (row.flow === 'products') await runProductsSync(row.environment_id, 'cron');
+      else if (row.flow === 'orders') await runOrdersSync(row.environment_id, 'cron');
+      else if (row.flow === 'contacts') await runContactsSync(row.environment_id, 'cron');
+      else if (row.flow === 'wishlist') await runWishlistSync(row.environment_id, 'cron');
+      executed.push({ flow: row.flow, env: `${row.tenant_slug}/${row.env_slug}`, result: 'ok' });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      console.error(`❌ [tick] ${tag}:`, message);
+      executed.push({ flow: row.flow, env: `${row.tenant_slug}/${row.env_slug}`, result: message });
+    }
+  }
+
+  return executed;
+}
+
 export type SchedulerJobStatus = {
   environmentId: string;
   flow: FlowKey;

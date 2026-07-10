@@ -28,6 +28,7 @@ import { runContactsSync } from '../modules/contacts/worker.js';
 import { runWishlistSync } from '../modules/wishlist/sync.js';
 import { listLatest, contactStats } from '../modules/contacts/repo.js';
 import { hasRunningRun } from '../modules/runs.js';
+import { runInBackground } from '../lib/background.js';
 
 export const dataRouter = Router();
 
@@ -450,20 +451,18 @@ dataRouter.post('/environments/:envId/flows/:flow/run', async (req: Request, res
     const envId = req.params.envId;
     const body = (req.body ?? {}) as { startDate?: string; endDate?: string };
 
-    // Fire-and-forget — o progresso é acompanhado em /api/background/jobs
-    setImmediate(() => {
-      const promise =
+    // Background compatível com serverless — progresso em /api/background/jobs
+    runInBackground(
+      () =>
         flow === 'products'
           ? runProductsSync(envId, 'manual')
           : flow === 'orders'
             ? runOrdersSync(envId, 'manual', { startDate: body.startDate, endDate: body.endDate })
             : flow === 'contacts'
               ? runContactsSync(envId, 'manual')
-              : runWishlistSync(envId, 'manual');
-      promise.catch((err) =>
-        console.error(`❌ [run:${flow}] Erro não tratado:`, err instanceof Error ? err.message : err),
-      );
-    });
+              : runWishlistSync(envId, 'manual'),
+      `run:${flow}`,
+    );
 
     res.status(202).json({
       success: true,

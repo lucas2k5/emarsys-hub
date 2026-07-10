@@ -23,6 +23,7 @@ import express from 'express';
 import helmet from 'helmet';
 import cors from 'cors';
 import cookieParser from 'cookie-parser';
+import rateLimit from 'express-rate-limit';
 
 import { runMigrations, closePool } from './db/pool.js';
 import { authRouter, requireAuth, validateAuthConfig } from './http/auth.js';
@@ -30,13 +31,33 @@ import { tenantsRouter } from './http/tenants.js';
 import { environmentsRouter } from './http/environments.js';
 import { dataRouter, metricsMiddleware, memorySnapshot } from './http/data.js';
 import { webhooksRouter } from './http/webhooks.js';
-import { startScheduler, stopScheduler } from './scheduler/index.js';
+import { startScheduler, stopScheduler, runDueFlows } from './scheduler/index.js';
 import { failOrphanRuns } from './modules/runs.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? '0.0.0.0';
 const PAINEL_ORIGIN = process.env.PAINEL_ORIGIN ?? 'http://localhost:3000';
+
+// Na Vercel não há processo contínuo: sem listen() e sem scheduler residente —
+// o cron externo bate em /internal/cron/tick e o trabalho em background usa
+// waitUntil (src/lib/background.ts).
+const IS_SERVERLESS = !!process.env.VERCEL;
+
+// Init único por processo (cold start em serverless; boot em servidor):
+// valida config, roda migrations e libera runs órfãos antes do 1º request.
+let initPromise: Promise<void> | null = null;
+function ensureInit(): Promise<void> {
+  if (!initPromise) {
+    initPromise = (async () => {
+      validateAuthConfig();
+      await runMigrations();
+      const orphans = await failOrphanRuns();
+      if (orphans > 0) console.log(`🧹 ${orphans} sync run(s) órfão(s) marcados como failed`);
+    })();
+  }
+  return initPromise;
+}
 
 // ── Middlewares globais ──────────────────────────────────────────────────────
 
@@ -48,8 +69,20 @@ app.use(
   }),
 );
 app.use(cookieParser());
-app.use(express.json({ limit: '2mb' }));
+// Payloads legítimos são pequenos (formulários e webhooks de contato)
+app.use(express.json({ limit: '256kb' }));
 app.use(metricsMiddleware);
+
+// Garante init (migrations etc.) antes de qualquer rota — essencial no cold
+// start serverless; em servidor contínuo resolve instantâneo após o boot.
+app.use((_req, res, next) => {
+  ensureInit()
+    .then(() => next())
+    .catch((err) => {
+      console.error('❌ Falha na inicialização:', err instanceof Error ? err.message : err);
+      res.status(503).json({ success: false, error: 'Serviço inicializando ou mal configurado', timestamp: new Date().toISOString() });
+    });
+});
 
 // ── Rotas públicas ───────────────────────────────────────────────────────────
 
@@ -65,8 +98,27 @@ app.get('/health', (_req, res) => {
 
 app.use('/auth', authRouter);
 
-// Webhooks públicos — auth própria por token (connection contacts_webhook)
-app.use('/webhooks', webhooksRouter);
+// Webhooks públicos — auth própria por token (connection contacts_webhook),
+// com rate limit por IP (endpoint exposto à internet)
+const webhookLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: true, legacyHeaders: false });
+app.use('/webhooks', webhookLimiter, webhooksRouter);
+
+// Tick do scheduler para modo serverless (Vercel Cron ou pinger externo).
+// Auth: Authorization: Bearer ${CRON_SECRET}.
+app.all('/internal/cron/tick', async (req, res) => {
+  const secret = process.env.CRON_SECRET;
+  if (!secret || req.headers.authorization !== `Bearer ${secret}`) {
+    res.status(401).json({ success: false, error: 'Não autorizado', timestamp: new Date().toISOString() });
+    return;
+  }
+  try {
+    const executed = await runDueFlows();
+    res.json({ success: true, executed, timestamp: new Date().toISOString() });
+  } catch (err) {
+    console.error('❌ [tick] Erro:', err instanceof Error ? err.message : err);
+    res.status(500).json({ success: false, error: 'Erro interno do servidor', timestamp: new Date().toISOString() });
+  }
+});
 
 // ── Rotas protegidas (/api/*) ────────────────────────────────────────────────
 
@@ -102,16 +154,9 @@ app.use(
 
 async function start() {
   try {
-    // Valida variáveis obrigatórias APÓS dotenv — falha rápido no boot.
-    validateAuthConfig();
-
-    console.log('🔄 Rodando migrations...');
-    await runMigrations();
-    console.log('✅ Migrations concluídas');
-
-    // Runs 'running' órfãos de um restart não podem travar a guarda de sobreposição
-    const orphans = await failOrphanRuns();
-    if (orphans > 0) console.log(`🧹 ${orphans} sync run(s) órfão(s) marcados como failed`);
+    console.log('🔄 Inicializando (migrations etc.)...');
+    await ensureInit();
+    console.log('✅ Init concluído');
 
     await startScheduler();
 
@@ -138,4 +183,9 @@ async function start() {
   }
 }
 
-start();
+if (!IS_SERVERLESS) {
+  start();
+}
+
+// Entry serverless (Vercel) — o wrapper em api/index.js importa este app
+export default app;

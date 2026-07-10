@@ -54,8 +54,8 @@ export async function runContactsSync(
   let dead = 0;
 
   try {
-    // Itens presos em 'processing' por restart voltam pra fila
-    await releaseStuckProcessing();
+    // Itens DESTE environment presos em 'processing' por restart voltam pra fila
+    await releaseStuckProcessing(environmentId);
 
     let gateway: EmarsysContactsGateway | null = null;
     if (!debug) {
@@ -70,7 +70,7 @@ export async function runContactsSync(
       for (const row of batch) {
         processed++;
         try {
-          const contact = toContactData(row.payload, false);
+          const contact = toContactData(row.payload, row.fan_out);
           if (debug) {
             console.log(`🧪 [contacts][${tag}] DEBUG — envio pulado para contato #${row.id} (${row.email ?? row.cpf})`);
           } else {
