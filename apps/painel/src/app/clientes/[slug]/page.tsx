@@ -544,9 +544,6 @@ function scheduleSummary(s: Schedule): string {
   return 'Expressão cron personalizada'
 }
 
-const MINUTE_OPTIONS = [5, 10, 15, 20, 30, 45]
-const HOUR_OPTIONS = [1, 2, 3, 4, 6, 8, 12]
-
 function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
   const updateFlow = useUpdateFlow(envId, flow.flow)
   const [enabled, setEnabled] = useState(flow.enabled)
@@ -584,33 +581,36 @@ function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
       <div className="space-y-2">
         <label className="text-xs font-medium text-muted-foreground">Frequência</label>
         <div className="flex flex-wrap items-center gap-2">
+          {(schedule.mode === 'minutes' || schedule.mode === 'hours') && (
+            <>
+              <span className="text-xs text-muted-foreground">A cada</span>
+              <Input
+                type="number"
+                min={1}
+                max={schedule.mode === 'minutes' ? 59 : 23}
+                value={schedule.n}
+                disabled={!enabled}
+                onChange={e => {
+                  const max = schedule.mode === 'minutes' ? 59 : 23
+                  const n = Math.max(1, Math.min(max, Number(e.target.value) || 1))
+                  setSchedule({ ...schedule, n })
+                }}
+                className="border-border bg-background text-sm h-8 w-20"
+              />
+            </>
+          )}
           <select
             className={selectCls}
             value={schedule.mode}
             disabled={!enabled}
             onChange={e => setSchedule({ ...schedule, mode: e.target.value as ScheduleMode })}
+            aria-label="Unidade de frequência"
           >
-            <option value="minutes">A cada X minutos</option>
-            <option value="hours">A cada X horas</option>
-            <option value="daily">Diariamente às…</option>
+            <option value="minutes">Minutos</option>
+            <option value="hours">Horas</option>
+            <option value="daily">Dia</option>
             <option value="custom">Avançado (cron)</option>
           </select>
-
-          {schedule.mode === 'minutes' && (
-            <select className={selectCls} value={schedule.n} disabled={!enabled}
-              onChange={e => setSchedule({ ...schedule, n: Number(e.target.value) })}>
-              {MINUTE_OPTIONS.map(n => <option key={n} value={n}>{n} min</option>)}
-              {!MINUTE_OPTIONS.includes(schedule.n) && <option value={schedule.n}>{schedule.n} min</option>}
-            </select>
-          )}
-
-          {schedule.mode === 'hours' && (
-            <select className={selectCls} value={schedule.n} disabled={!enabled}
-              onChange={e => setSchedule({ ...schedule, n: Number(e.target.value) })}>
-              {HOUR_OPTIONS.map(n => <option key={n} value={n}>{n}h</option>)}
-              {!HOUR_OPTIONS.includes(schedule.n) && <option value={schedule.n}>{schedule.n}h</option>}
-            </select>
-          )}
 
           {schedule.mode === 'daily' && (
             <Input
