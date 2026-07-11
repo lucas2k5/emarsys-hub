@@ -21,7 +21,8 @@ import {
   DialogTitle,
   DialogFooter,
 } from '@/components/ui/dialog'
-import { useTenant, useUpdateTenant } from '@/hooks/useTenants'
+import { useRouter } from 'next/navigation'
+import { useTenant, useUpdateTenant, useDeleteTenant } from '@/hooks/useTenants'
 import {
   useEnvironment,
   useUpdateConnection,
@@ -43,6 +44,7 @@ import type {
 // ─── Schemas ──────────────────────────────────────────────────────────────────
 
 const updateTenantSchema = z.object({
+  slug: z.string().min(2, 'Mínimo 2 caracteres').regex(/^[a-z0-9]+(?:-[a-z0-9]+)*$/, 'kebab-case (ex: minha-loja)'),
   name: z.string().min(2, 'Mínimo 2 caracteres'),
   status: z.enum(['active', 'inactive']),
 })
@@ -124,19 +126,31 @@ const FLOW_LABELS: Record<FlowKey, string> = {
 // ─── Tab: Dados do Tenant ─────────────────────────────────────────────────────
 
 function DadosTab({ slug }: { slug: string }) {
+  const router = useRouter()
   const { data: tenant, isLoading } = useTenant(slug)
   const updateTenant = useUpdateTenant(slug)
+  const deleteTenant = useDeleteTenant()
   const [saved, setSaved] = useState(false)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
-  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<{ name: string; status: TenantStatus }>({
+  const { register, handleSubmit, formState: { errors, isSubmitting } } = useForm<{ slug: string; name: string; status: TenantStatus }>({
     resolver: zodResolver(updateTenantSchema),
-    values: tenant ? { name: tenant.name, status: tenant.status } : undefined,
+    values: tenant ? { slug: tenant.slug, name: tenant.name, status: tenant.status } : undefined,
   })
 
-  async function onSubmit(values: { name: string; status: TenantStatus }) {
-    await updateTenant.mutateAsync(values)
+  async function onSubmit(values: { slug: string; name: string; status: TenantStatus }) {
+    const updated = await updateTenant.mutateAsync(values)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
+    // Slug renomeado → a página atual deixa de existir; navega pra nova URL
+    if (updated.slug !== slug) {
+      router.replace(`/clientes/${updated.slug}`)
+    }
+  }
+
+  async function onDelete() {
+    await deleteTenant.mutateAsync(slug)
+    router.replace('/clientes')
   }
 
   if (isLoading) return <div className="space-y-3 py-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-12 w-full rounded-xl" />)}</div>
@@ -144,9 +158,11 @@ function DadosTab({ slug }: { slug: string }) {
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-md space-y-4 py-4" noValidate>
       <div className="space-y-1">
-        <label className="text-sm font-medium text-foreground">Slug</label>
-        <Input value={slug} disabled className="border-border bg-accent font-mono text-muted-foreground" />
-        <p className="text-xs text-muted-foreground">Identificador único imutável</p>
+        <label htmlFor="tenantSlug" className="text-sm font-medium text-foreground">Slug</label>
+        <Input id="tenantSlug" className="border-border bg-accent font-mono" aria-invalid={!!errors.slug} {...register('slug')} />
+        {errors.slug
+          ? <p className="text-xs text-red-400">{errors.slug.message}</p>
+          : <p className="text-xs text-muted-foreground">Renomear muda as URLs derivadas (painel e webhook de contatos — reconfigure quem chama)</p>}
       </div>
       <div className="space-y-1">
         <label htmlFor="name" className="text-sm font-medium text-foreground">Nome</label>
@@ -177,6 +193,31 @@ function DadosTab({ slug }: { slug: string }) {
           <p>Atualizado em: {formatDate(tenant.updatedAt)}</p>
         </div>
       )}
+
+      {/* Zona de perigo — exclusão definitiva (cascade: ambientes, conexões e dados) */}
+      <div className="pt-4 border-t border-red-500/20 space-y-3">
+        <p className="text-sm font-semibold text-red-400">Zona de perigo</p>
+        {!confirmDelete ? (
+          <Button type="button" variant="outline" className="gap-2 border-red-500/30 text-red-400 hover:bg-red-500/10" onClick={() => setConfirmDelete(true)}>
+            <Trash2 className="w-4 h-4" /> Excluir cliente
+          </Button>
+        ) : (
+          <div className="space-y-2 p-4 rounded-xl bg-red-500/10 border border-red-500/20">
+            <p className="text-sm text-red-400">
+              Excluir <strong>{tenant?.name}</strong> apaga permanentemente todos os ambientes,
+              conexões, credenciais e dados sincronizados. Não dá pra desfazer.
+            </p>
+            <div className="flex items-center gap-2">
+              <Button type="button" variant="outline" className="gap-2 border-red-500/40 text-red-400 hover:bg-red-500/20" disabled={deleteTenant.isPending} onClick={onDelete}>
+                {deleteTenant.isPending ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                Confirmar exclusão
+              </Button>
+              <Button type="button" variant="ghost" onClick={() => setConfirmDelete(false)}>Cancelar</Button>
+            </div>
+            {deleteTenant.error && <p className="text-xs text-red-400">{deleteTenant.error.message}</p>}
+          </div>
+        )}
+      </div>
     </form>
   )
 }

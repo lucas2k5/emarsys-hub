@@ -43,13 +43,34 @@ export function useCreateTenant() {
 export function useUpdateTenant(slug: string) {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (payload: { name?: string; status?: string }) => {
+    mutationFn: async (payload: { slug?: string; name?: string; status?: string }) => {
       const { data } = await api.patch<{ tenant: Tenant }>(`/api/tenants/${slug}`, payload)
       return data.tenant
     },
-    onSuccess: () => {
+    onSuccess: (tenant) => {
       queryClient.invalidateQueries({ queryKey: ['tenants'] })
       queryClient.invalidateQueries({ queryKey: ['tenant', slug] })
+      // slug renomeado → o detalhe passa a viver em outra chave
+      if (tenant.slug !== slug) {
+        queryClient.invalidateQueries({ queryKey: ['tenant', tenant.slug] })
+      }
+    },
+  })
+}
+
+/**
+ * Exclusão de cliente: a API só deleta tenants inativos — o hook inativa
+ * primeiro e deleta em seguida (cascade remove environments e dados).
+ */
+export function useDeleteTenant() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: async (slug: string) => {
+      await api.patch(`/api/tenants/${slug}`, { status: 'inactive' })
+      await api.delete(`/api/tenants/${slug}`)
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['tenants'] })
     },
   })
 }

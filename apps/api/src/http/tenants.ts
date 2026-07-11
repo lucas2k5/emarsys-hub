@@ -18,6 +18,7 @@ const createTenantSchema = z.object({
 });
 
 const patchTenantSchema = z.object({
+  slug: slugSchema.optional(),
   name: z.string().min(1).max(200).optional(),
   status: z.enum(['active', 'inactive']).optional(),
 });
@@ -134,6 +135,9 @@ tenantsRouter.patch('/:slug', async (req: Request, res: Response): Promise<void>
     const params: unknown[] = [];
     let idx = 1;
 
+    // Renomear slug: URLs derivadas mudam junto (painel /clientes/<slug> e o
+    // webhook público /webhooks/contacts/<slug> — reconfigurar quem chama!)
+    if (fields.slug !== undefined) { sets.push(`slug = $${idx++}`); params.push(fields.slug); }
     if (fields.name !== undefined) { sets.push(`name = $${idx++}`); params.push(fields.name); }
     if (fields.status !== undefined) { sets.push(`status = $${idx++}`); params.push(fields.status); }
 
@@ -149,6 +153,11 @@ tenantsRouter.patch('/:slug', async (req: Request, res: Response): Promise<void>
     if (!rows[0]) { notFound(res, 'Tenant não encontrado'); return; }
     res.json({ success: true, tenant: rows[0], timestamp: ts() });
   } catch (err) {
+    const pgErr = err as { code?: string };
+    if (pgErr.code === '23505') {
+      conflict(res, `Já existe um tenant com o slug "${fields.slug}"`);
+      return;
+    }
     internalError(res, err);
   }
 });
