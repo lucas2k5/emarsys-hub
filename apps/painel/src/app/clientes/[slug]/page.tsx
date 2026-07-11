@@ -68,19 +68,19 @@ type FieldDef = { key: string; label: string; placeholder?: string; isSecret?: b
 
 const CONNECTION_FIELDS: Record<ConnectionKind, FieldDef[]> = {
   vtex: [
-    { key: 'baseUrl', label: 'Base URL', placeholder: 'https://loja.myvtex.com' },
+    { key: 'baseUrl', label: 'Base URL' },
     { key: 'appKey', label: 'App Key' },
     { key: 'appToken', label: 'App Token', isSecret: true },
   ],
   vtex_io_app: [
-    { key: 'workspace', label: 'Workspace', placeholder: 'master' },
+    { key: 'workspace', label: 'Workspace' },
     { key: 'appKey', label: 'App Key' },
     { key: 'appToken', label: 'App Token', isSecret: true },
   ],
   emarsys_oauth2: [
     { key: 'clientId', label: 'Client ID' },
-    { key: 'tokenEndpoint', label: 'Token Endpoint', placeholder: 'https://auth.emarsys.net/oauth2/token' },
-    { key: 'apiBaseUrl', label: 'API Base URL', placeholder: 'https://api.emarsys.net' },
+    { key: 'tokenEndpoint', label: 'Token Endpoint' },
+    { key: 'apiBaseUrl', label: 'API Base URL' },
     { key: 'clientSecret', label: 'Client Secret', isSecret: true },
   ],
   emarsys_wsse: [
@@ -89,20 +89,20 @@ const CONNECTION_FIELDS: Record<ConnectionKind, FieldDef[]> = {
   ],
   emarsys_sales_api: [
     { key: 'merchantId', label: 'Merchant ID' },
-    { key: 'apiUrl', label: 'API URL', placeholder: 'https://admin.scarabresearch.com/hapi/merchant/{id}/sales-data/api' },
+    { key: 'apiUrl', label: 'API URL' },
     { key: 'token', label: 'Token estático (opcional — senão usa OAuth2)', isSecret: true },
   ],
   sftp_products: [
-    { key: 'host', label: 'Host', placeholder: 'exchange.si.emarsys.net' },
-    { key: 'port', label: 'Porta', placeholder: '22' },
+    { key: 'host', label: 'Host' },
+    { key: 'port', label: 'Porta' },
     { key: 'username', label: 'Usuário' },
-    { key: 'remotePath', label: 'Caminho remoto', placeholder: '/catalog/' },
+    { key: 'remotePath', label: 'Caminho remoto' },
     { key: 'password', label: 'Senha', isSecret: true },
   ],
   contacts_webhook: [
     { key: 'url', label: 'URL do webhook' },
     { key: 'authHeader', label: 'Header de autenticação', isSecret: true },
-    { key: 'timeout', label: 'Timeout (ms)', placeholder: '30000' },
+    { key: 'timeout', label: 'Timeout (ms)' },
   ],
 }
 
@@ -508,17 +508,59 @@ function CamposTab({ envId }: { envId: string }) {
 
 // ─── Flow Toggle Card ─────────────────────────────────────────────────────────
 
+// ─── Agendamento amigável ↔ cron ─────────────────────────────────────────────
+// O backend continua 100% em cron (environment_flows.cron_expression);
+// aqui só traduzimos pra linguagem de gente.
+
+type ScheduleMode = 'minutes' | 'hours' | 'daily' | 'custom'
+type Schedule = { mode: ScheduleMode; n: number; time: string; raw: string }
+
+function parseCronToSchedule(cron: string | null): Schedule {
+  const fallback: Schedule = { mode: 'minutes', n: 30, time: '03:00', raw: cron ?? '' }
+  if (!cron) return fallback
+  let m = cron.match(/^\*\/(\d+) \* \* \* \*$/)
+  if (m) return { ...fallback, mode: 'minutes', n: Number(m[1]) }
+  m = cron.match(/^0 \*\/(\d+) \* \* \*$/)
+  if (m) return { ...fallback, mode: 'hours', n: Number(m[1]) }
+  m = cron.match(/^(\d+) (\d+) \* \* \*$/)
+  if (m) return { ...fallback, mode: 'daily', time: `${m[2].padStart(2, '0')}:${m[1].padStart(2, '0')}` }
+  return { ...fallback, mode: 'custom', raw: cron }
+}
+
+function scheduleToCron(s: Schedule): string {
+  if (s.mode === 'minutes') return `*/${s.n} * * * *`
+  if (s.mode === 'hours') return `0 */${s.n} * * *`
+  if (s.mode === 'daily') {
+    const [h, min] = s.time.split(':')
+    return `${Number(min) || 0} ${Number(h) || 0} * * *`
+  }
+  return s.raw.trim()
+}
+
+function scheduleSummary(s: Schedule): string {
+  if (s.mode === 'minutes') return `Executa a cada ${s.n} minuto${s.n > 1 ? 's' : ''}`
+  if (s.mode === 'hours') return `Executa a cada ${s.n} hora${s.n > 1 ? 's' : ''}`
+  if (s.mode === 'daily') return `Executa diariamente às ${s.time}`
+  return 'Expressão cron personalizada'
+}
+
+const MINUTE_OPTIONS = [5, 10, 15, 20, 30, 45]
+const HOUR_OPTIONS = [1, 2, 3, 4, 6, 8, 12]
+
 function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
   const updateFlow = useUpdateFlow(envId, flow.flow)
   const [enabled, setEnabled] = useState(flow.enabled)
-  const [cron, setCron] = useState(flow.cronExpression ?? '')
+  const [schedule, setSchedule] = useState<Schedule>(() => parseCronToSchedule(flow.cronExpression))
   const [saved, setSaved] = useState(false)
 
   async function handleSave() {
+    const cron = scheduleToCron(schedule)
     await updateFlow.mutateAsync({ enabled, cronExpression: cron || null })
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
+
+  const selectCls = 'text-sm rounded-xl border border-border bg-background px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50'
 
   return (
     <div className="p-4 rounded-xl border border-border bg-accent/20 space-y-3">
@@ -538,15 +580,62 @@ function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
           </div>
         </label>
       </div>
-      <div className="space-y-1">
-        <label className="text-xs font-medium text-muted-foreground">Expressão cron</label>
-        <Input
-          value={cron}
-          onChange={e => setCron(e.target.value)}
-          placeholder="*/30 * * * *"
-          className="border-border bg-background text-sm h-8 font-mono"
-          disabled={!enabled}
-        />
+
+      <div className="space-y-2">
+        <label className="text-xs font-medium text-muted-foreground">Frequência</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <select
+            className={selectCls}
+            value={schedule.mode}
+            disabled={!enabled}
+            onChange={e => setSchedule({ ...schedule, mode: e.target.value as ScheduleMode })}
+          >
+            <option value="minutes">A cada X minutos</option>
+            <option value="hours">A cada X horas</option>
+            <option value="daily">Diariamente às…</option>
+            <option value="custom">Avançado (cron)</option>
+          </select>
+
+          {schedule.mode === 'minutes' && (
+            <select className={selectCls} value={schedule.n} disabled={!enabled}
+              onChange={e => setSchedule({ ...schedule, n: Number(e.target.value) })}>
+              {MINUTE_OPTIONS.map(n => <option key={n} value={n}>{n} min</option>)}
+              {!MINUTE_OPTIONS.includes(schedule.n) && <option value={schedule.n}>{schedule.n} min</option>}
+            </select>
+          )}
+
+          {schedule.mode === 'hours' && (
+            <select className={selectCls} value={schedule.n} disabled={!enabled}
+              onChange={e => setSchedule({ ...schedule, n: Number(e.target.value) })}>
+              {HOUR_OPTIONS.map(n => <option key={n} value={n}>{n}h</option>)}
+              {!HOUR_OPTIONS.includes(schedule.n) && <option value={schedule.n}>{schedule.n}h</option>}
+            </select>
+          )}
+
+          {schedule.mode === 'daily' && (
+            <Input
+              type="time"
+              value={schedule.time}
+              disabled={!enabled}
+              onChange={e => setSchedule({ ...schedule, time: e.target.value })}
+              className="border-border bg-background text-sm h-8 w-28"
+            />
+          )}
+
+          {schedule.mode === 'custom' && (
+            <Input
+              value={schedule.raw}
+              disabled={!enabled}
+              onChange={e => setSchedule({ ...schedule, raw: e.target.value })}
+              placeholder="*/30 * * * *"
+              className="border-border bg-background text-sm h-8 font-mono w-40"
+            />
+          )}
+        </div>
+        <p className="text-xs text-muted-foreground">
+          {scheduleSummary(schedule)}
+          {schedule.mode !== 'custom' && <span className="font-mono text-muted-foreground/60"> · {scheduleToCron(schedule)}</span>}
+        </p>
       </div>
       <div className="flex items-center gap-2">
         <Button size="sm" onClick={handleSave} disabled={updateFlow.isPending} className="gap-1.5 h-8">
@@ -559,7 +648,7 @@ function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
   )
 }
 
-// ─── Tab: Fluxos ──────────────────────────────────────────────────────────────
+// ─── Tab: Automações ──────────────────────────────────────────────────────────────
 
 const ALL_FLOWS: FlowKey[] = ['products', 'orders', 'contacts', 'wishlist']
 
@@ -648,7 +737,7 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ slug: 
             <TabsTrigger value="ambientes">Ambientes</TabsTrigger>
             <TabsTrigger value="conexoes" disabled={!selectedEnv}>Conexoes</TabsTrigger>
             <TabsTrigger value="campos" disabled={!selectedEnv}>Campos Emarsys</TabsTrigger>
-            <TabsTrigger value="fluxos" disabled={!selectedEnv}>Fluxos</TabsTrigger>
+            <TabsTrigger value="fluxos" disabled={!selectedEnv}>Automações</TabsTrigger>
           </TabsList>
 
           <TabsContent value="dados">

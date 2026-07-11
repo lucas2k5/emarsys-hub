@@ -15,7 +15,7 @@ import {
   Menu,
   Building2,
   ChevronsUpDown,
-} from 'lucide-react'
+ Heart } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { useTenants } from '@/hooks/useTenants'
@@ -43,6 +43,7 @@ const tenantNavItems: NavItem[] = [
   { key: 'pedidos', label: 'Pedidos', icon: ShoppingCart },
   { key: 'contatos', label: 'Contatos', icon: Users },
   { key: 'produtos', label: 'Produtos', icon: Package },
+  { key: 'wishlist', label: 'Wishlist', icon: Heart },
   { key: 'sistema', label: 'Sistema', icon: Settings2 },
 ]
 

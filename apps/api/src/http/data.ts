@@ -281,6 +281,51 @@ dataRouter.get('/metrics/contacts/retry-status', async (req: Request, res: Respo
   }
 });
 
+// ── GET /api/wishlist/status ─────────────────────────────────────────────────
+// Dashboard de wishlist: estado do flow por environment + execuções recentes.
+
+dataRouter.get('/wishlist/status', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const envIds = await envIdsFromReq(req);
+    if (envIds.length === 0) {
+      res.json({ environments: [], runs: [] });
+      return;
+    }
+
+    const pool = getPool();
+    const [envRes, runsRes] = await Promise.all([
+      pool.query(
+        `SELECT e.id AS "environmentId", e.slug AS "envSlug", e.name AS "envName",
+                t.slug AS "tenantSlug",
+                COALESCE(f.enabled, FALSE) AS enabled,
+                f.cron_expression AS "cronExpression",
+                f.checkpoint->>'lastUpdatedIn' AS "checkpoint",
+                f.last_run_at AS "lastRunAt",
+                f.last_status AS "lastStatus"
+         FROM tenant_environments e
+         JOIN tenants t ON t.id = e.tenant_id
+         LEFT JOIN environment_flows f ON f.environment_id = e.id AND f.flow = 'wishlist'
+         WHERE e.id = ANY($1)
+         ORDER BY t.slug, e.slug`,
+        [envIds],
+      ),
+      pool.query(
+        `SELECT r.id, e.slug AS "envSlug", r.status, r.trigger, r.progress,
+                r.stats, r.error, r.started_at AS "startedAt", r.finished_at AS "finishedAt"
+         FROM sync_runs r
+         JOIN tenant_environments e ON e.id = r.environment_id
+         WHERE r.environment_id = ANY($1) AND r.flow = 'wishlist'
+         ORDER BY r.started_at DESC LIMIT 15`,
+        [envIds],
+      ),
+    ]);
+
+    res.json({ environments: envRes.rows, runs: runsRes.rows });
+  } catch (err) {
+    internalError(res, err);
+  }
+});
+
 // ── GET /api/cron-management/status ──────────────────────────────────────────
 
 dataRouter.get('/cron-management/status', async (req: Request, res: Response): Promise<void> => {
