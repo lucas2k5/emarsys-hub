@@ -13,6 +13,7 @@ import axios, { type AxiosInstance } from 'axios';
 import { createHash } from 'node:crypto';
 import { getPool } from '../../db/pool.js';
 import { getAccessToken, invalidateToken, type OAuth2Config } from '../emarsys/oauth2.js';
+import { logIntegrationEvent } from '../audit.js';
 import type { EnvironmentContext } from '../../tenancy/context.js';
 import type { ContactData } from './types.js';
 
@@ -213,13 +214,43 @@ export class EmarsysContactsGateway {
     return data;
   }
 
+  /** PUT com auditoria: payload enviado + resposta/erro ficam na trilha. */
+  private async auditedUpsert(event: string, subject: string | null, payload: Record<string, unknown>): Promise<void> {
+    const startedAt = Date.now();
+    try {
+      const response = await this.client.put<EmarsysApiResponse>('/api/v3/contact/?create_if_not_exists=1', payload);
+      this.handleEmarsysErrors(response.data);
+      await logIntegrationEvent({
+        environmentId: this.environmentId,
+        flow: 'contacts',
+        event,
+        subject,
+        request: payload,
+        response: response.data,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (err) {
+      await logIntegrationEvent({
+        environmentId: this.environmentId,
+        flow: 'contacts',
+        level: 'error',
+        event: `${event}_failed`,
+        subject,
+        request: payload,
+        response: { error: err instanceof Error ? err.message : String(err) },
+        durationMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
+  }
+
   async createContact(contact: ContactData): Promise<void> {
     const payload = {
       key_id: this.fields.ids[this.fields.externalIdKey],
       contacts: [this.buildContactPayload(contact)],
     };
-    const response = await this.client.put<EmarsysApiResponse>('/api/v3/contact/?create_if_not_exists=1', payload);
-    this.handleEmarsysErrors(response.data);
+    await this.auditedUpsert('contact_create', contact.email ?? contact.customer_id ?? null, payload);
   }
 
   async updateContact(contact: ContactData, contactId: string | null): Promise<void> {
@@ -230,16 +261,38 @@ export class EmarsysContactsGateway {
     } else {
       payload = { key_id: this.fields.ids[this.fields.externalIdKey], contacts: [contactPayload] };
     }
-    const response = await this.client.put<EmarsysApiResponse>('/api/v3/contact/?create_if_not_exists=1', payload);
-    this.handleEmarsysErrors(response.data);
+    await this.auditedUpsert('contact_update', contact.email ?? contact.customer_id ?? null, payload);
   }
 
   async deleteContact(contactId: string): Promise<void> {
-    const response = await this.client.post<EmarsysApiResponse>('/api/v3/contact/delete', {
-      id: [contactId],
-      key_id: 'id',
-    });
-    this.handleEmarsysErrors(response.data);
+    const startedAt = Date.now();
+    const payload = { id: [contactId], key_id: 'id' };
+    try {
+      const response = await this.client.post<EmarsysApiResponse>('/api/v3/contact/delete', payload);
+      this.handleEmarsysErrors(response.data);
+      await logIntegrationEvent({
+        environmentId: this.environmentId,
+        flow: 'contacts',
+        event: 'contact_delete',
+        subject: contactId,
+        request: payload,
+        response: response.data,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (err) {
+      await logIntegrationEvent({
+        environmentId: this.environmentId,
+        flow: 'contacts',
+        level: 'error',
+        event: 'contact_delete_failed',
+        subject: contactId,
+        request: payload,
+        response: { error: err instanceof Error ? err.message : String(err) },
+        durationMs: Date.now() - startedAt,
+      });
+      throw err;
+    }
   }
 }
 

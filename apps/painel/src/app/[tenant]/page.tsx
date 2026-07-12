@@ -1,14 +1,12 @@
 'use client'
 import { use } from 'react'
-import { clientTypeBadgeClass, clientTypeLabel } from '@/lib/clientTypeBadge'
-import { motion } from 'framer-motion'
 import Link from 'next/link'
+import { motion } from 'framer-motion'
 import {
-  AlertCircle,
-  Package,
-  ArrowRight, CheckCircle2,
-  Clock, AlertTriangle, XCircle,
+  Activity, Package, ShoppingCart, Users, Heart,
+  CheckCircle2, Clock, AlertTriangle, XCircle, ArrowRight, FileText, Percent,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import { format, subDays } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
 import { Badge } from '@/components/ui/badge'
@@ -19,8 +17,14 @@ import { useProductStats } from '@/hooks/useProductStats'
 import { useOrders } from '@/hooks/useOrders'
 import { useContacts } from '@/hooks/useContacts'
 import { useErrorLogs } from '@/hooks/useErrorLogs'
+import { useWishlist } from '@/hooks/useWishlist'
+import { PageHeader } from '@/components/dashboard/PageHeader'
+import { KpiCard, type KpiTone } from '@/components/dashboard/KpiCard'
+import { ChartCard } from '@/components/dashboard/ChartCard'
+import { StatusBadge } from '@/components/dashboard/StatusBadge'
 import { SyncDonutChart } from '@/components/dashboard/SyncDonutChart'
 import { OrdersLineChart } from '@/components/dashboard/OrdersLineChart'
+import { clientTypeBadgeClass, clientTypeLabel } from '@/lib/clientTypeBadge'
 import { formatDate, formatRelative, truncate } from '@/lib/utils'
 import type { Order } from '@/types/api'
 
@@ -42,29 +46,39 @@ function groupOrdersByDay(orders: Order[]): { date: string; total: number; synce
   return Array.from(map.entries()).map(([date, v]) => ({ date, ...v }))
 }
 
-function SectionHeader({ title, href, accent, delay = 0 }: { title: string; href: string; accent: string; delay?: number }) {
+/** Cabeçalho de seção: chip de ícone + título + "Ver todos" (visual novo, sem side-stripe). */
+function SectionHeader({ title, icon: Icon, tone, href, delay = 0 }: {
+  title: string
+  icon: LucideIcon
+  tone: KpiTone
+  href?: string
+  delay?: number
+}) {
+  const chip: Record<KpiTone, string> = {
+    primary: 'bg-primary/10 border-primary/20 text-primary',
+    highlight: 'bg-highlight/10 border-highlight/20 text-highlight',
+    violet: 'bg-violet-500/10 border-violet-500/20 text-violet-400',
+    rose: 'bg-rose-500/10 border-rose-500/20 text-rose-400',
+    emerald: 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400',
+    amber: 'bg-amber-500/10 border-amber-500/20 text-amber-400',
+  }
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay, duration: 0.4 }}
       className="flex items-center justify-between mb-4"
     >
-      <div className={`flex items-center gap-3 pl-3 border-l-2 ${accent}`}>
+      <div className="flex items-center gap-2.5">
+        <div className={`w-7 h-7 rounded-lg border flex items-center justify-center ${chip[tone]}`}>
+          <Icon className="w-3.5 h-3.5" aria-hidden="true" />
+        </div>
         <h2 className="text-sm font-semibold text-foreground">{title}</h2>
       </div>
-      <Link href={href} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
-        Ver todos <ArrowRight className="w-3 h-3" />
-      </Link>
+      {href && (
+        <Link href={href} className="flex items-center gap-1 text-xs text-muted-foreground hover:text-primary transition-colors">
+          Ver todos <ArrowRight className="w-3 h-3" aria-hidden="true" />
+        </Link>
+      )}
     </motion.div>
-  )
-}
-
-function KpiCard({ label, value, sub, color = 'text-foreground', loading }: { label: string; value: string | number; sub?: string; color?: string; loading?: boolean }) {
-  return (
-    <div className="p-4 rounded-xl bg-accent/50 border border-border space-y-1">
-      <p className="text-xs text-muted-foreground">{label}</p>
-      {loading ? <Skeleton className="h-7 w-20" /> : <p className={`text-xl font-bold ${color}`}>{value}</p>}
-      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
-    </div>
   )
 }
 
@@ -77,9 +91,20 @@ export default function TenantDashboard({ params }: { params: Promise<{ tenant: 
   const orders = useOrders({ limit: 200 }, tenant)
   const recentContacts = useContacts(20, tenant)
   const errorLogs = useErrorLogs(tenant)
+  const wishlist = useWishlist(tenant)
 
-  const failedContacts = (recentContacts.data ?? []).filter(c => c.status === 'failed' || c.status === 'dead').slice(0, 8)
+  const failedContacts = (recentContacts.data ?? []).filter(c => c.status === 'failed' || c.status === 'dead').slice(0, 6)
   const pendingOrders = (orders.data?.orders ?? []).filter(o => !o.isSync).slice(0, 8)
+  const lineData = groupOrdersByDay(orders.data?.orders ?? [])
+
+  const totalContactFailures = (contacts.data?.failed ?? 0) + (contacts.data?.dead ?? 0)
+  const failureRate = contacts.data?.total ? ((totalContactFailures / contacts.data.total) * 100).toFixed(1) : null
+  const pctSynced = sync.data?.percentSynced
+
+  const wishlistSent = (wishlist.data?.runs ?? []).reduce((acc, r) => acc + (r.stats?.sent ?? 0), 0)
+  const wishlistErrors = (wishlist.data?.runs ?? []).reduce((acc, r) => acc + (r.stats?.errors ?? 0) + (r.status === 'failed' ? 1 : 0), 0)
+  const lastWishlistRun = wishlist.data?.runs?.[0]
+  const wishlistEnvsAtivos = (wishlist.data?.environments ?? []).filter(e => e.enabled).length
 
   const donutData = [
     { name: 'Enviados',  value: contacts.data?.sent    ?? 0, key: 'sent' },
@@ -88,112 +113,107 @@ export default function TenantDashboard({ params }: { params: Promise<{ tenant: 
     { name: 'Mortos',    value: contacts.data?.dead    ?? 0, key: 'dead' },
   ]
 
-  const lineData = groupOrdersByDay(orders.data?.orders ?? [])
-  const totalContactFailures = (contacts.data?.failed ?? 0) + (contacts.data?.dead ?? 0)
-  const failureRate = contacts.data?.total ? ((totalContactFailures / contacts.data.total) * 100).toFixed(1) : '—'
-
   return (
-    <div className="space-y-10 py-6">
-      <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
-        <h1 className="text-2xl font-bold">Dashboard</h1>
-        <p className="text-sm text-muted-foreground mt-1">Monitoramento em tempo real — VTEX → SAP Emarsys</p>
-      </motion.div>
+    <div className="py-6 max-w-[1600px] mx-auto space-y-10">
+      <PageHeader
+        title="Visão geral"
+        subtitle="Monitoramento em tempo real de todas as integrações"
+        icon={Activity}
+      />
 
-      {/* CONTATOS */}
-      <section className="space-y-4">
-        <SectionHeader title="Contatos" href={`/${tenant}/contatos`} accent="border-purple-500" delay={0.05} />
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.4 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard label="Total de contatos" value={contacts.data?.total?.toLocaleString('pt-BR') ?? '—'} loading={contacts.isLoading} />
-          <KpiCard label="Enviados" value={contacts.data?.sent?.toLocaleString('pt-BR') ?? '—'} color="text-emerald-400" loading={contacts.isLoading} />
-          <KpiCard label="Falhos + mortos" value={totalContactFailures.toLocaleString('pt-BR')} color="text-red-400" sub={`${failureRate}% do total`} loading={contacts.isLoading} />
-          <KpiCard label="Pendentes" value={contacts.data?.pending?.toLocaleString('pt-BR') ?? '—'} color="text-yellow-400" loading={contacts.isLoading} />
-        </motion.div>
-
-        <div className="grid lg:grid-cols-3 gap-4">
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15, duration: 0.5 }} className="p-5 rounded-2xl border border-border bg-card flex flex-col gap-4">
+      {/* ── CONTATOS ─────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Contatos" icon={Users} tone="violet" href={`/${tenant}/contatos`} delay={0.05} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <KpiCard index={0} tone="violet" icon={Users} loading={contacts.isLoading}
+            title="Total de contatos" value={contacts.data?.total?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={1} tone="emerald" icon={CheckCircle2} loading={contacts.isLoading}
+            title="Enviados" value={contacts.data?.sent?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={2} tone="amber" icon={Clock} loading={contacts.isLoading}
+            title="Pendentes" value={contacts.data?.pending?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={3} tone="rose" icon={XCircle} loading={contacts.isLoading}
+            title="Falhos + dead-letter" value={totalContactFailures.toLocaleString('pt-BR')}
+            sub={failureRate ? `${failureRate}% do total` : undefined} subTone="negative" />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <ChartCard title="Contatos por status" subtitle="Fila de processamento" delay={0.15}>
             <SyncDonutChart data={donutData} loading={contacts.isLoading} />
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2, duration: 0.5 }} className="lg:col-span-2 p-5 rounded-2xl border border-border bg-card">
-            <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
-              <XCircle className="w-3 h-3 text-red-400" />
-              Contatos com falha (recentes)
-            </p>
+          </ChartCard>
+          <ChartCard title="Contatos com falha" subtitle="Retry e dead-letter recentes" delay={0.2} className="lg:col-span-2">
             {recentContacts.isLoading ? (
-              <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-lg" />)}</div>
+              <div className="space-y-2">{Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-9 w-full rounded-lg" />)}</div>
             ) : !failedContacts.length ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-                <p className="text-xs text-muted-foreground">Nenhuma falha recente</p>
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400/60" aria-hidden="true" />
+                <p className="text-sm text-muted-foreground">Nenhuma falha recente</p>
               </div>
             ) : (
               <div className="overflow-x-auto">
-                <table className="w-full text-xs">
-                  <thead><tr className="border-b border-border">
-                    <th className="text-left py-2 px-2 text-muted-foreground font-medium">Email</th>
-                    <th className="text-left py-2 px-2 text-muted-foreground font-medium">Status</th>
-                    <th className="text-left py-2 px-2 text-muted-foreground font-medium">Tent.</th>
-                    <th className="text-left py-2 px-2 text-muted-foreground font-medium">Tipo</th>
-                    <th className="text-left py-2 px-2 text-muted-foreground font-medium">Último erro</th>
-                  </tr></thead>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-left text-xs text-muted-foreground border-b border-border">
+                      <th className="pb-3 font-medium">Email</th>
+                      <th className="pb-3 font-medium">Status</th>
+                      <th className="pb-3 font-medium">Tent.</th>
+                      <th className="pb-3 font-medium">Ambiente</th>
+                      <th className="pb-3 font-medium">Último erro</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {failedContacts.map(c => (
-                      <tr key={c.id} className="border-b border-border hover:bg-accent/30 transition-colors">
-                        <td className="py-2 px-2">{truncate(c.email, 26)}</td>
-                        <td className="py-2 px-2">
-                          <Badge variant="outline" className={c.status === 'dead' ? 'border-red-500/30 text-red-400 bg-red-500/10' : 'border-orange-500/30 text-orange-400 bg-orange-500/10'}>
-                            {c.status}
-                          </Badge>
-                        </td>
-                        <td className="py-2 px-2 font-mono text-center">{c.attempts}</td>
-                        <td className="py-2 px-2">
+                      <tr key={c.id} className="border-b border-border last:border-0 hover:bg-secondary/30 transition-colors">
+                        <td className="py-3 text-xs">{truncate(c.email, 26)}</td>
+                        <td className="py-3"><StatusBadge status={c.status === 'dead' ? 'dead' : 'failed'} /></td>
+                        <td className="py-3 font-mono text-xs">{c.attempts}</td>
+                        <td className="py-3">
                           <Badge variant="outline" className={clientTypeBadgeClass(c.client_type)}>
                             {clientTypeLabel(c.client_type)}
                           </Badge>
                         </td>
-                        <td className="py-2 px-2 text-muted-foreground">{truncate(c.last_error, 30)}</td>
+                        <td className="py-3 text-xs text-muted-foreground">{truncate(c.last_error, 32)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
-          </motion.div>
+          </ChartCard>
         </div>
       </section>
 
-      {/* PEDIDOS */}
-      <section className="space-y-4">
-        <SectionHeader title="Pedidos" href={`/${tenant}/pedidos`} accent="border-sky-500" delay={0.3} />
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.35, duration: 0.4 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <KpiCard label="Total de pedidos" value={sync.data?.total?.toLocaleString('pt-BR') ?? '—'} loading={sync.isLoading} />
-          <KpiCard label="Sincronizados" value={sync.data?.synced?.toLocaleString('pt-BR') ?? '—'} color="text-emerald-400" loading={sync.isLoading} />
-          <KpiCard label="Pendentes" value={sync.data?.pending?.toLocaleString('pt-BR') ?? '—'} color="text-yellow-400" loading={sync.isLoading} />
-          <KpiCard label="Taxa de sincronização" value={sync.data ? `${sync.data.percentSynced.toFixed(1)}%` : '—'} color={sync.data && sync.data.percentSynced >= 80 ? 'text-emerald-400' : 'text-orange-400'} sub={`${sync.data?.pending ?? 0} aguardando`} loading={sync.isLoading} />
-        </motion.div>
-
-        <div className="grid lg:grid-cols-3 gap-4">
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.4, duration: 0.5 }} className="lg:col-span-2 p-5 rounded-2xl border border-border bg-card space-y-3">
-            <p className="text-xs text-muted-foreground">Pedidos — últimos 7 dias</p>
+      {/* ── PEDIDOS ──────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Pedidos" icon={ShoppingCart} tone="highlight" href={`/${tenant}/pedidos`} delay={0.1} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
+          <KpiCard index={0} tone="highlight" icon={ShoppingCart} loading={sync.isLoading}
+            title="Total de pedidos" value={sync.data?.total?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={1} tone="emerald" icon={CheckCircle2} loading={sync.isLoading}
+            title="Sincronizados" value={sync.data?.synced?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={2} tone="amber" icon={Clock} loading={sync.isLoading}
+            title="Pendentes" value={sync.data?.pending?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={3} tone="primary" icon={Percent} loading={sync.isLoading}
+            title="Taxa de sincronização" value={pctSynced !== undefined ? `${pctSynced.toFixed(1)}%` : '—'}
+            sub={sync.data ? `${sync.data.pending.toLocaleString('pt-BR')} aguardando` : undefined}
+            subTone={pctSynced !== undefined && pctSynced >= 80 ? 'positive' : 'warning'} />
+        </div>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+          <ChartCard title="Pedidos sincronizados" subtitle="Últimos 7 dias" delay={0.2} className="lg:col-span-2">
             <OrdersLineChart data={lineData} loading={orders.isLoading} />
-          </motion.div>
-          <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45, duration: 0.5 }} className="p-5 rounded-2xl border border-border bg-card">
-            <p className="text-xs font-medium text-muted-foreground mb-3 flex items-center gap-1.5">
-              <Clock className="w-3 h-3 text-yellow-400" />
-              Pedidos pendentes (últimos)
-            </p>
+          </ChartCard>
+          <ChartCard title="Pedidos pendentes" subtitle="Aguardando envio" delay={0.25}>
             {orders.isLoading ? (
               <div className="space-y-2">{Array.from({ length: 6 }).map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-lg" />)}</div>
             ) : !pendingOrders.length ? (
-              <div className="flex flex-col items-center justify-center py-8 gap-2">
-                <CheckCircle2 className="w-8 h-8 text-emerald-400" />
-                <p className="text-xs text-muted-foreground">Nenhum pendente</p>
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <CheckCircle2 className="w-8 h-8 text-emerald-400/60" aria-hidden="true" />
+                <p className="text-sm text-muted-foreground">Nenhum pedido pendente</p>
               </div>
             ) : (
               <div className="space-y-1">
                 {pendingOrders.map(o => (
-                  <div key={o.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-accent transition-colors">
-                    <span className="font-mono text-xs text-sky-400">{truncate(o.order, 18)}</span>
-                    <Badge variant="outline" className="border-yellow-500/30 text-yellow-400 bg-yellow-500/10 text-xs">Pendente</Badge>
+                  <div key={o.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-secondary/30 transition-colors">
+                    <span className="font-mono text-xs text-highlight">{truncate(o.order, 18)}</span>
+                    <StatusBadge status="pending" />
                   </div>
                 ))}
                 {(orders.data?.orders ?? []).filter(o => !o.isSync).length > 8 && (
@@ -203,68 +223,81 @@ export default function TenantDashboard({ params }: { params: Promise<{ tenant: 
                 )}
               </div>
             )}
-          </motion.div>
+          </ChartCard>
         </div>
       </section>
 
-      {/* PRODUTOS */}
-      <section className="space-y-4">
-        <SectionHeader title="Produtos" href={`/${tenant}/produtos`} accent="border-emerald-500" delay={0.4} />
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.45, duration: 0.4 }} className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-          <div className="p-4 rounded-xl bg-accent/50 border border-border flex items-center gap-3">
-            <div className={`w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0 ${product.isLoading ? 'bg-accent' : product.data?.status === 'ok' ? 'bg-emerald-500/10 border border-emerald-500/20' : product.data?.status === 'error' ? 'bg-red-500/10 border border-red-500/20' : 'bg-accent border border-border'}`}>
-              {product.isLoading ? <Package className="w-4 h-4 text-muted-foreground" /> : product.data?.status === 'ok' ? <CheckCircle2 className="w-4 h-4 text-emerald-400" /> : product.data?.status === 'error' ? <AlertTriangle className="w-4 h-4 text-red-400" /> : <Clock className="w-4 h-4 text-muted-foreground" />}
-            </div>
-            <div>
-              <p className="text-xs text-muted-foreground">Status</p>
-              {product.isLoading ? <Skeleton className="h-5 w-16 mt-1" /> : <p className={`text-sm font-semibold ${product.data?.status === 'ok' ? 'text-emerald-400' : product.data?.status === 'error' ? 'text-red-400' : 'text-muted-foreground'}`}>{product.data?.status === 'ok' ? 'Concluído' : product.data?.status === 'error' ? 'Erro' : 'Sem dados'}</p>}
-            </div>
-          </div>
-          <KpiCard label="Total de SKUs" value={product.data?.total?.toLocaleString('pt-BR') ?? '—'} color="text-purple-400" loading={product.isLoading} />
-          <KpiCard label="Última sincronização" value={formatDate(product.data?.lastSync) ?? '—'} loading={product.isLoading} sub={product.data?.lastSync ? formatRelative(product.data.lastSync) : undefined} />
-          <KpiCard label="Último arquivo" value={product.data?.lastFile ?? '—'} loading={product.isLoading} />
-        </motion.div>
+      {/* ── PRODUTOS ─────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Produtos" icon={Package} tone="primary" href={`/${tenant}/produtos`} delay={0.15} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard index={0}
+            tone={product.data?.status === 'ok' ? 'emerald' : product.data?.status === 'error' ? 'rose' : 'amber'}
+            icon={product.data?.status === 'error' ? AlertTriangle : CheckCircle2}
+            loading={product.isLoading}
+            title="Status da última sincronização"
+            value={product.data?.status === 'ok' ? 'Concluída' : product.data?.status === 'error' ? 'Erro' : 'Sem dados'} />
+          <KpiCard index={1} tone="primary" icon={Package} loading={product.isLoading}
+            title="Total de SKUs" value={product.data?.total?.toLocaleString('pt-BR') ?? '—'} />
+          <KpiCard index={2} tone="highlight" icon={Clock} loading={product.isLoading}
+            title="Última sincronização" value={product.data?.lastSync ? formatDate(product.data.lastSync) : '—'}
+            sub={product.data?.lastSync ? formatRelative(product.data.lastSync) : undefined} />
+          <KpiCard index={3} tone="violet" icon={FileText} loading={product.isLoading}
+            title="Último arquivo" value={product.data?.lastFile ?? '—'} />
+        </div>
       </section>
 
-      {/* ERROS DE INTEGRAÇÃO */}
-      <section className="space-y-4">
-        <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.5, duration: 0.4 }} className="flex items-center justify-between">
-          <div className="flex items-center gap-3 pl-3 border-l-2 border-red-500">
-            <h2 className="text-sm font-semibold text-foreground flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 text-red-400" />
-              Erros de integração
-            </h2>
-          </div>
-        </motion.div>
-        <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.55, duration: 0.5 }} className="p-5 rounded-2xl border border-border bg-card">
+      {/* ── WISHLIST ─────────────────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Wishlist" icon={Heart} tone="rose" href={`/${tenant}/wishlist`} delay={0.2} />
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <KpiCard index={0} tone="rose" icon={Heart} loading={wishlist.isLoading}
+            title="Wishlists enviadas" value={wishlistSent.toLocaleString('pt-BR')}
+            sub="últimas execuções" />
+          <KpiCard index={1} tone="highlight" icon={Clock} loading={wishlist.isLoading}
+            title="Última execução"
+            value={lastWishlistRun ? formatRelative(lastWishlistRun.startedAt) : '—'}
+            sub={lastWishlistRun ? (lastWishlistRun.status === 'completed' ? 'concluída' : lastWishlistRun.status === 'failed' ? 'falhou' : 'rodando') : 'nenhuma ainda'}
+            subTone={lastWishlistRun?.status === 'failed' ? 'negative' : lastWishlistRun?.status === 'completed' ? 'positive' : 'muted'} />
+          <KpiCard index={2} tone="emerald" icon={Activity} loading={wishlist.isLoading}
+            title="Automações ativas" value={wishlistEnvsAtivos}
+            sub={`de ${wishlist.data?.environments?.length ?? 0} ambiente(s)`} />
+          <KpiCard index={3} tone={wishlistErrors > 0 ? 'rose' : 'emerald'} icon={wishlistErrors > 0 ? AlertTriangle : CheckCircle2} loading={wishlist.isLoading}
+            title="Erros recentes" value={wishlistErrors.toLocaleString('pt-BR')} />
+        </div>
+      </section>
+
+      {/* ── ERROS DE INTEGRAÇÃO ──────────────────────────────────────────── */}
+      <section>
+        <SectionHeader title="Erros de integração" icon={AlertTriangle} tone="rose" href={`/${tenant}/logs?level=error`} delay={0.25} />
+        <ChartCard title="Últimas ocorrências" subtitle="Clique em Ver todos para a trilha completa com payloads" delay={0.3}>
           {errorLogs.isLoading ? (
-            <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-8 w-full rounded-lg" />)}</div>
+            <div className="space-y-2">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-9 w-full rounded-lg" />)}</div>
           ) : !errorLogs.data?.length ? (
             <div className="flex items-center gap-3 py-4">
-              <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+              <CheckCircle2 className="w-5 h-5 text-emerald-400" aria-hidden="true" />
               <p className="text-sm text-muted-foreground">Nenhum erro de integração recente</p>
             </div>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead><tr className="border-b border-border">
-                  <th className="text-left py-2 px-3 text-xs text-muted-foreground font-medium">Pedido</th>
-                  <th className="text-left py-2 px-3 text-xs text-muted-foreground font-medium">Mensagem</th>
-                  <th className="text-left py-2 px-3 text-xs text-muted-foreground font-medium">Quando</th>
-                </tr></thead>
-                <tbody>
-                  {errorLogs.data.slice(0, 10).map((e, i) => (
-                    <tr key={i} className="border-b border-border hover:bg-accent/30 transition-colors">
-                      <td className="py-2.5 px-3 font-mono text-xs text-sky-400 whitespace-nowrap">{e.orderId}</td>
-                      <td className="py-2.5 px-3 text-xs text-red-400">{truncate(e.message, 60)}</td>
-                      <td className="py-2.5 px-3 text-xs text-muted-foreground whitespace-nowrap">{formatRelative(e.timestamp)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            <div className="space-y-3">
+              {errorLogs.data.slice(0, 8).map((e, i) => (
+                <div key={i} className="flex items-start gap-3 pb-3 border-b border-border last:border-0 last:pb-0">
+                  <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center shrink-0">
+                    <XCircle className="w-4 h-4 text-rose-400" aria-hidden="true" />
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm text-foreground truncate" title={e.message}>{e.message}</p>
+                    <div className="flex items-center gap-2 mt-0.5 text-xs text-muted-foreground">
+                      <span className="font-mono">{e.orderId}</span>
+                      <span>•</span>
+                      <span>{formatRelative(e.timestamp)}</span>
+                    </div>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
-        </motion.div>
+        </ChartCard>
       </section>
     </div>
   )

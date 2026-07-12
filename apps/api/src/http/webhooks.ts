@@ -26,6 +26,7 @@ import { enqueueContact } from '../modules/contacts/repo.js';
 import { runContactsSync } from '../modules/contacts/worker.js';
 import { decryptSecrets } from '../tenancy/crypto.js';
 import { runInBackground } from '../lib/background.js';
+import { logIntegrationEvent } from '../modules/audit.js';
 
 export const webhooksRouter = Router();
 
@@ -130,6 +131,16 @@ webhooksRouter.post('/contacts/:tenantSlug', async (req: Request, res: Response)
     for (const target of selected) {
       const contactId = await enqueueContact(target.environmentId, parsed.data, isFanOut);
       enqueued.push({ environment: target.envSlug, contactId });
+      // Auditoria inbound: payload recebido (CPF mascarado na gravação)
+      await logIntegrationEvent({
+        environmentId: target.environmentId,
+        flow: 'contacts',
+        direction: 'inbound',
+        event: 'webhook_received',
+        subject: parsed.data.email ?? parsed.data.customer_id ?? null,
+        request: parsed.data,
+        response: { contactId, fanOut: isFanOut },
+      });
     }
 
     // Processamento imediato em background (guarda de sobreposição interna

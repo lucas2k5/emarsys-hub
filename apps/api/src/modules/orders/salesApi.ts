@@ -8,6 +8,7 @@
 
 import axios from 'axios';
 import { getAccessToken, invalidateToken, isOAuth2Configured, type OAuth2Config } from '../emarsys/oauth2.js';
+import { logIntegrationEvent } from '../audit.js';
 import type { EmarsysSaleRecord } from './service.js';
 
 export const SALES_CSV_HEADERS = [
@@ -116,6 +117,15 @@ export async function sendSalesCsv(cfg: SalesApiConfig, csvContent: string): Pro
   const maxRetries = 3;
   let lastError: Error | null = null;
 
+  // Auditoria: CSV completo é grande demais pro log — guarda meta + amostra
+  const csvLines = csvContent.split('\n').filter((l) => l.trim());
+  const auditRequest = {
+    lines: csvLines.length - 1,
+    bytes: csvBuffer.length,
+    sample: csvLines.slice(0, 6),
+  };
+  const startedAt = Date.now();
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       const token = cfg.staticToken || (await getAccessToken(cfg.environmentId, cfg.oauth2 as OAuth2Config));
@@ -134,6 +144,16 @@ export async function sendSalesCsv(cfg: SalesApiConfig, csvContent: string): Pro
       });
 
       console.log(`✅ [sales-api][${cfg.tag}] CSV enviado (status: ${response.status})`);
+      await logIntegrationEvent({
+        environmentId: cfg.environmentId,
+        flow: 'orders',
+        event: 'sales_csv_sent',
+        subject: `${auditRequest.lines} pedidos`,
+        request: auditRequest,
+        response: response.data,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+      });
       return { success: true, status: response.status, attempts: attempt };
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
@@ -153,6 +173,17 @@ export async function sendSalesCsv(cfg: SalesApiConfig, csvContent: string): Pro
         (axios.isAxiosError(error) && (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT'));
 
       if (!isRetryable) {
+        await logIntegrationEvent({
+          environmentId: cfg.environmentId,
+          flow: 'orders',
+          level: 'error',
+          event: 'sales_csv_failed',
+          subject: `${auditRequest.lines} pedidos`,
+          request: auditRequest,
+          response: { error: lastError.message, data: axios.isAxiosError(error) ? error.response?.data : undefined },
+          statusCode: status ?? null,
+          durationMs: Date.now() - startedAt,
+        });
         return { success: false, status, attempts: attempt, error: lastError.message };
       }
 
@@ -162,6 +193,16 @@ export async function sendSalesCsv(cfg: SalesApiConfig, csvContent: string): Pro
     }
   }
 
+  await logIntegrationEvent({
+    environmentId: cfg.environmentId,
+    flow: 'orders',
+    level: 'error',
+    event: 'sales_csv_failed',
+    subject: `${auditRequest.lines} pedidos`,
+    request: auditRequest,
+    response: { error: `Falha após ${maxRetries} tentativas: ${lastError?.message}` },
+    durationMs: Date.now() - startedAt,
+  });
   return {
     success: false,
     attempts: maxRetries,

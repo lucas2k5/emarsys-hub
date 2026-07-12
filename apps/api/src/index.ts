@@ -26,13 +26,15 @@ import cookieParser from 'cookie-parser';
 import rateLimit from 'express-rate-limit';
 
 import { runMigrations, closePool } from './db/pool.js';
-import { authRouter, requireAuth, validateAuthConfig } from './http/auth.js';
+import { authRouter, requireAuth, validateAuthConfig, type AuthRequest } from './http/auth.js';
+import { usersRouter } from './http/users.js';
 import { tenantsRouter } from './http/tenants.js';
 import { environmentsRouter } from './http/environments.js';
 import { dataRouter, metricsMiddleware, memorySnapshot } from './http/data.js';
 import { webhooksRouter } from './http/webhooks.js';
 import { startScheduler, stopScheduler, runDueFlows } from './scheduler/index.js';
 import { failOrphanRuns } from './modules/runs.js';
+import { purgeOldEvents } from './modules/audit.js';
 
 const app = express();
 const PORT = Number(process.env.PORT ?? 4000);
@@ -113,7 +115,8 @@ app.all('/internal/cron/tick', async (req, res) => {
   }
   try {
     const executed = await runDueFlows();
-    res.json({ success: true, executed, timestamp: new Date().toISOString() });
+    const { purged } = await purgeOldEvents(); // retenção da trilha de auditoria
+    res.json({ success: true, executed, auditPurged: purged, timestamp: new Date().toISOString() });
   } catch (err) {
     console.error('❌ [tick] Erro:', err instanceof Error ? err.message : err);
     res.status(500).json({ success: false, error: 'Erro interno do servidor', timestamp: new Date().toISOString() });
@@ -123,6 +126,23 @@ app.all('/internal/cron/tick', async (req, res) => {
 // ── Rotas protegidas (/api/*) ────────────────────────────────────────────────
 
 app.use('/api', requireAuth);
+
+// Role viewer = somente leitura: qualquer método de escrita em /api/* é bloqueado.
+// Admins passam direto. (A administração de usuários tem guarda própria em usersRouter.)
+app.use('/api', (req, res, next) => {
+  const user = (req as AuthRequest).user;
+  if (req.method !== 'GET' && user?.role !== 'admin') {
+    res.status(403).json({
+      success: false,
+      error: 'Seu perfil é somente visualização — ação restrita a administradores',
+      timestamp: new Date().toISOString(),
+    });
+    return;
+  }
+  next();
+});
+
+app.use('/api/users', usersRouter);
 app.use('/api/tenants', tenantsRouter);
 
 // Endpoints de dados do dashboard (Fase 2) — inclui POST /environments/:envId/flows/:flow/run,

@@ -411,6 +411,94 @@ dataRouter.get('/background/jobs', async (req: Request, res: Response): Promise<
   }
 });
 
+// ── GET /api/integration/events ──────────────────────────────────────────────
+// Trilha de auditoria: lista paginada com filtros (fluxo, nível, busca, período).
+
+dataRouter.get('/integration/events', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const envIds = await envIdsFromReq(req);
+    if (envIds.length === 0) {
+      res.json({ events: [], total: 0 });
+      return;
+    }
+
+    const limit = intParam(req.query.limit, 50, 200);
+    const offset = intParam(req.query.offset, 0, 1_000_000);
+
+    const where: string[] = ['ev.environment_id = ANY($1)'];
+    const params: unknown[] = [envIds];
+    let idx = 2;
+
+    if (typeof req.query.flow === 'string' && ['products', 'orders', 'contacts', 'wishlist'].includes(req.query.flow)) {
+      where.push(`ev.flow = $${idx++}`);
+      params.push(req.query.flow);
+    }
+    if (typeof req.query.level === 'string' && ['info', 'warn', 'error'].includes(req.query.level)) {
+      where.push(`ev.level = $${idx++}`);
+      params.push(req.query.level);
+    }
+    if (typeof req.query.q === 'string' && req.query.q.trim()) {
+      where.push(`(ev.subject ILIKE $${idx} OR ev.event ILIKE $${idx})`);
+      params.push(`%${req.query.q.trim()}%`);
+      idx++;
+    }
+    for (const [name, op] of [['from', '>='], ['to', '<=']] as const) {
+      const value = req.query[name];
+      if (typeof value === 'string' && value && !isNaN(Date.parse(value))) {
+        where.push(`ev.created_at ${op} $${idx++}`);
+        params.push(value);
+      }
+    }
+
+    const whereSql = where.join(' AND ');
+    const pool = getPool();
+    const [countRes, rowsRes] = await Promise.all([
+      pool.query(`SELECT COUNT(*)::int AS count FROM integration_events ev WHERE ${whereSql}`, params),
+      pool.query(
+        `SELECT ev.id, ev.flow, ev.direction, ev.level, ev.event, ev.subject,
+                ev.status_code AS "statusCode", ev.duration_ms AS "durationMs",
+                ev.created_at AS "createdAt", e.slug AS "envSlug"
+         FROM integration_events ev
+         JOIN tenant_environments e ON e.id = ev.environment_id
+         WHERE ${whereSql}
+         ORDER BY ev.created_at DESC
+         LIMIT $${idx++} OFFSET $${idx++}`,
+        [...params, limit, offset],
+      ),
+    ]);
+
+    res.json({ events: rowsRes.rows, total: (countRes.rows[0] as { count: number }).count });
+  } catch (err) {
+    internalError(res, err);
+  }
+});
+
+// ── GET /api/integration/events/:id — detalhe com payloads ───────────────────
+
+dataRouter.get('/integration/events/:id(\\d+)', async (req: Request, res: Response): Promise<void> => {
+  try {
+    const envIds = await envIdsFromReq(req);
+    const pool = getPool();
+    const { rows } = await pool.query(
+      `SELECT ev.id, ev.flow, ev.direction, ev.level, ev.event, ev.subject,
+              ev.request_payload AS "requestPayload", ev.response_payload AS "responsePayload",
+              ev.status_code AS "statusCode", ev.duration_ms AS "durationMs",
+              ev.created_at AS "createdAt", ev.run_id AS "runId", e.slug AS "envSlug"
+       FROM integration_events ev
+       JOIN tenant_environments e ON e.id = ev.environment_id
+       WHERE ev.id = $1 AND ev.environment_id = ANY($2)`,
+      [req.params.id, envIds],
+    );
+    if (!rows[0]) {
+      res.status(404).json({ success: false, error: 'Evento não encontrado', timestamp: ts() });
+      return;
+    }
+    res.json({ event: rows[0] });
+  } catch (err) {
+    internalError(res, err);
+  }
+});
+
 // ── GET /api/integration/sync/error-logs ─────────────────────────────────────
 
 dataRouter.get('/integration/sync/error-logs', async (req: Request, res: Response): Promise<void> => {

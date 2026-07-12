@@ -10,10 +10,10 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 
 const COLORS: Record<string, string> = {
-  sent: '#10b981',
-  pending: '#eab308',
-  failed: '#f97316',
-  dead: '#ef4444',
+  sent: '#22C55E',
+  pending: '#F59E0B',
+  failed: '#F43F5E',
+  dead: '#E11D48',
 }
 
 type DataPoint = { name: string; value: number; key: string }
@@ -46,22 +46,22 @@ export function SyncDonutChart({ data, loading }: Props) {
           dataKey="value"
         >
           {filtered.map((entry) => (
-            <Cell key={entry.key} fill={COLORS[entry.key] ?? '#64748b'} />
+            <Cell key={entry.key} fill={COLORS[entry.key] ?? '#7D8DB3'} />
           ))}
         </Pie>
         <Tooltip
           contentStyle={{
-            background: '#1e293b',
+            background: '#0D0F17',
             border: '1px solid rgba(255,255,255,0.05)',
             borderRadius: 8,
             fontSize: 12,
           }}
-          itemStyle={{ color: '#f1f5f9' }}
+          itemStyle={{ color: '#F8FAFC' }}
         />
         <Legend
           iconType="circle"
           iconSize={8}
-          wrapperStyle={{ fontSize: 11, color: '#94a3b8' }}
+          wrapperStyle={{ fontSize: 11, color: '#7D8DB3' }}
         />
       </PieChart>
     </ResponsiveContainer>

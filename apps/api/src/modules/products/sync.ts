@@ -9,6 +9,7 @@
 import { getPool } from '../../db/pool.js';
 import { loadEnvironmentContext, markFlowRun, type EnvironmentContext } from '../../tenancy/context.js';
 import { startRun, updateRunProgress, completeRun, failRun, hasRunningRun, type RunTrigger } from '../runs.js';
+import { logIntegrationEvent } from '../audit.js';
 import { fetchAllProductRows, type ProductRow, type VtexProductsConfig } from './service.js';
 import { generateProductsCsv } from './csv.js';
 import { uploadBufferToSftp } from './sftp.js';
@@ -143,17 +144,42 @@ export async function runProductsSync(
     } else {
       const sftpConn = ctx.connections.sftp_products;
       if (!sftpConn) throw new Error('Connection "sftp_products" não configurada para este environment');
-      await uploadBufferToSftp(
-        {
-          host: sftpConn.config.host,
-          port: Number(sftpConn.config.port || 22),
-          username: sftpConn.config.username,
-          password: sftpConn.secrets.password,
-          remotePath: sftpConn.config.remotePath || '/',
-        },
-        csv,
-        fileName,
-      );
+      const uploadStartedAt = Date.now();
+      try {
+        const remoteFile = await uploadBufferToSftp(
+          {
+            host: sftpConn.config.host,
+            port: Number(sftpConn.config.port || 22),
+            username: sftpConn.config.username,
+            password: sftpConn.secrets.password,
+            remotePath: sftpConn.config.remotePath || '/',
+          },
+          csv,
+          fileName,
+        );
+        await logIntegrationEvent({
+          environmentId,
+          flow: 'products',
+          event: 'sftp_upload',
+          subject: fileName,
+          request: { fileName, bytes: csv.length, totalProducts: rows.length, remoteFile },
+          durationMs: Date.now() - uploadStartedAt,
+          runId,
+        });
+      } catch (err) {
+        await logIntegrationEvent({
+          environmentId,
+          flow: 'products',
+          level: 'error',
+          event: 'sftp_upload_failed',
+          subject: fileName,
+          request: { fileName, bytes: csv.length, totalProducts: rows.length },
+          response: { error: err instanceof Error ? err.message : String(err) },
+          durationMs: Date.now() - uploadStartedAt,
+          runId,
+        });
+        throw err;
+      }
       uploaded = true;
     }
 

@@ -14,6 +14,7 @@
 import axios, { type AxiosInstance } from 'axios';
 import { randomUUID } from 'node:crypto';
 import { getAccessToken, invalidateToken, type OAuth2Config } from '../emarsys/oauth2.js';
+import { logIntegrationEvent } from '../audit.js';
 
 // ── VTEX Master Data ─────────────────────────────────────────────────────────
 
@@ -173,11 +174,36 @@ export class EmarsysWishlistSender {
       ],
     };
 
-    const response = await this.client.post<WishlistUpdateResponse>('/api/v3/wishlist/update', body);
-    // Mesmo padrão do gateway de contatos: qualquer replyCode != 0 é erro
-    const { replyCode, replyText } = response.data ?? {};
-    if (replyCode !== undefined && replyCode !== 0) {
-      throw new Error(`Emarsys wishlist/update falhou: [${replyCode}] ${replyText}`);
+    const startedAt = Date.now();
+    try {
+      const response = await this.client.post<WishlistUpdateResponse>('/api/v3/wishlist/update', body);
+      // Mesmo padrão do gateway de contatos: qualquer replyCode != 0 é erro
+      const { replyCode, replyText } = response.data ?? {};
+      if (replyCode !== undefined && replyCode !== 0) {
+        throw new Error(`Emarsys wishlist/update falhou: [${replyCode}] ${replyText}`);
+      }
+      await logIntegrationEvent({
+        environmentId: this.cfg.environmentId,
+        flow: 'wishlist',
+        event: 'wishlist_update',
+        subject: email,
+        request: body,
+        response: response.data,
+        statusCode: response.status,
+        durationMs: Date.now() - startedAt,
+      });
+    } catch (err) {
+      await logIntegrationEvent({
+        environmentId: this.cfg.environmentId,
+        flow: 'wishlist',
+        level: 'error',
+        event: 'wishlist_update_failed',
+        subject: email,
+        request: body,
+        response: { error: err instanceof Error ? err.message : String(err) },
+        durationMs: Date.now() - startedAt,
+      });
+      throw err;
     }
   }
 }

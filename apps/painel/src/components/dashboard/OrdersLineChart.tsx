@@ -23,28 +23,28 @@ export function OrdersLineChart({ data, loading }: Props) {
         <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
         <XAxis
           dataKey="date"
-          tick={{ fontSize: 11, fill: '#64748b' }}
+          tick={{ fontSize: 11, fill: '#7D8DB3' }}
           axisLine={false}
           tickLine={false}
         />
         <YAxis
-          tick={{ fontSize: 11, fill: '#64748b' }}
+          tick={{ fontSize: 11, fill: '#7D8DB3' }}
           axisLine={false}
           tickLine={false}
         />
         <Tooltip
           contentStyle={{
-            background: '#1e293b',
+            background: '#0D0F17',
             border: '1px solid rgba(255,255,255,0.05)',
             borderRadius: 8,
             fontSize: 12,
           }}
-          itemStyle={{ color: '#f1f5f9' }}
+          itemStyle={{ color: '#F8FAFC' }}
         />
         <Line
           type="monotone"
           dataKey="total"
-          stroke="#0ea5e9"
+          stroke="#0066FF"
           strokeWidth={2}
           dot={false}
           name="Total"
@@ -52,7 +52,7 @@ export function OrdersLineChart({ data, loading }: Props) {
         <Line
           type="monotone"
           dataKey="synced"
-          stroke="#10b981"
+          stroke="#00D4FF"
           strokeWidth={2}
           dot={false}
           name="Sincronizados"

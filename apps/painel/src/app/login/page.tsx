@@ -3,9 +3,10 @@ import { useEffect, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Zap, Loader2 } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
@@ -73,12 +74,10 @@ export default function LoginPage() {
       <div className="w-full max-w-sm space-y-8">
         {/* Logo */}
         <div className="flex flex-col items-center gap-3">
-          <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-sky-500 to-purple-500 flex items-center justify-center">
-            <Zap className="w-6 h-6 text-white" />
-          </div>
+          <Image src="/logo-wide.png" alt="Connect-hub" width={168} height={96} className="h-24 w-auto" priority />
           <div className="text-center">
-            <p className="font-semibold text-foreground">Emarsys-Hub</p>
-            <p className="text-sm text-muted-foreground">Painel multi-tenant</p>
+            <p className="font-semibold text-foreground">Connect-hub</p>
+            <p className="text-sm text-muted-foreground">Integrações multi-tenant</p>
           </div>
         </div>
 

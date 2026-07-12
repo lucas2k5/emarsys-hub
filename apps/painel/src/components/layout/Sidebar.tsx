@@ -1,5 +1,6 @@
 'use client'
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
 import { useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
@@ -11,18 +12,24 @@ import {
   Settings2,
   ChevronLeft,
   ChevronRight,
-  Zap,
   Menu,
   Building2,
   ChevronsUpDown,
+  Blocks,
+  ShieldCheck,
+  ScrollText,
  Heart } from 'lucide-react'
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from '@/components/ui/sheet'
 import { cn } from '@/lib/utils'
 import { useTenants } from '@/hooks/useTenants'
+import { useAuth } from '@/providers/AuthProvider'
+import { useQueryClient } from '@tanstack/react-query'
+import { api } from '@/lib/api'
+import { LogOut } from 'lucide-react'
 
 // Extrai tenant slug do pathname, excluindo segmentos de nível de sistema
 function getTenantFromPath(pathname: string): string | null {
-  const excluded = new Set(['clientes', 'login', 'api'])
+  const excluded = new Set(['clientes', 'login', 'api', 'sistemas', 'backoffice'])
   const parts = pathname.split('/').filter(Boolean)
   if (!parts.length) return null
   if (excluded.has(parts[0])) return null
@@ -44,8 +51,86 @@ const tenantNavItems: NavItem[] = [
   { key: 'contatos', label: 'Contatos', icon: Users },
   { key: 'produtos', label: 'Produtos', icon: Package },
   { key: 'wishlist', label: 'Wishlist', icon: Heart },
+  { key: 'logs', label: 'Logs', icon: ScrollText },
   { key: 'sistema', label: 'Sistema', icon: Settings2 },
 ]
+
+type GlobalNavItem = { href: string; label: string; icon: typeof LayoutDashboard; adminOnly?: boolean }
+
+const globalNavItems: GlobalNavItem[] = [
+  { href: '/clientes', label: 'Clientes', icon: Building2 },
+  { href: '/sistemas', label: 'Sistemas', icon: Blocks },
+]
+
+/**
+ * Rodapé da sidebar: Administração (admin-only) + Sair.
+ * Separado da navegação principal — utilidades de conta ficam embaixo.
+ */
+function SidebarFooterLinks({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
+  const pathname = usePathname()
+  const router = useRouter()
+  const queryClient = useQueryClient()
+  const { user } = useAuth()
+
+  async function handleLogout() {
+    try {
+      await api.post('/auth/logout')
+    } catch { /* ignora erros de logout */ }
+    queryClient.clear()
+    router.push('/login')
+  }
+
+  const itemCls = (active: boolean) => cn(
+    'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200 w-full',
+    collapsed && 'justify-center px-0',
+    active
+      ? 'bg-primary/10 text-primary border border-primary/20'
+      : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+  )
+
+  return (
+    <div className="p-2 border-t border-sidebar-border space-y-1">
+      {user?.role === 'admin' && (
+        <Link href="/backoffice" onClick={onNavigate} className={itemCls(pathname.startsWith('/backoffice'))} title="Administração">
+          <ShieldCheck className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+          {!collapsed && <span className="whitespace-nowrap">Administração</span>}
+        </Link>
+      )}
+      <button onClick={handleLogout} className={itemCls(false)} title="Sair" aria-label="Sair da conta">
+        <LogOut className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+        {!collapsed && <span className="whitespace-nowrap">Sair</span>}
+      </button>
+    </div>
+  )
+}
+
+function GlobalNavLinks({ collapsed = false, onNavigate }: { collapsed?: boolean; onNavigate?: () => void }) {
+  const pathname = usePathname()
+  const { user } = useAuth()
+  const items = globalNavItems.filter(item => !item.adminOnly || user?.role === 'admin')
+
+  return (
+    <>
+      {items.map(({ href, label, icon: Icon }) => (
+        <Link
+          key={href}
+          href={href}
+          onClick={onNavigate}
+          className={cn(
+            'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+            collapsed && 'justify-center px-0',
+            pathname.startsWith(href)
+              ? 'bg-primary/10 text-primary border border-primary/20'
+              : 'text-muted-foreground hover:text-foreground hover:bg-accent'
+          )}
+        >
+          <Icon className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
+          {!collapsed && <span className="whitespace-nowrap">{label}</span>}
+        </Link>
+      ))}
+    </>
+  )
+}
 
 function TenantSelector({ currentTenant, collapsed }: { currentTenant: string | null; collapsed: boolean }) {
   const router = useRouter()
@@ -66,7 +151,7 @@ function TenantSelector({ currentTenant, collapsed }: { currentTenant: string | 
     return (
       <div className="px-2 pb-2">
         <div
-          className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500/20 to-purple-500/20 border border-border flex items-center justify-center mx-auto"
+          className="w-8 h-8 rounded-lg bg-primary/15 border border-border flex items-center justify-center mx-auto"
           title={current?.name ?? 'Tenant'}
         >
           <Building2 className="w-3.5 h-3.5 text-muted-foreground" />
@@ -98,12 +183,10 @@ function TenantSelector({ currentTenant, collapsed }: { currentTenant: string | 
 function Logo({ collapsed }: { collapsed?: boolean }) {
   return (
     <div className={cn('flex items-center gap-3', collapsed && 'justify-center')}>
-      <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-purple-500 flex items-center justify-center flex-shrink-0">
-        <Zap className="w-4 h-4 text-white" />
-      </div>
+      <Image src="/logo-wide.png" alt="Connect-hub" width={63} height={36} className="h-9 w-auto flex-shrink-0" />
       {!collapsed && (
         <div>
-          <p className="font-semibold text-sm text-foreground leading-tight">Emarsys-Hub</p>
+          <p className="font-semibold text-sm text-foreground leading-tight">Connect-hub</p>
           <p className="text-xs text-muted-foreground">Multi-tenant</p>
         </div>
       )}
@@ -140,6 +223,7 @@ export function MobileSidebar() {
             <TenantSelector currentTenant={currentTenant} collapsed={false} />
           </div>
           <MobileNavLinks currentTenant={currentTenant} onNavigate={() => setOpen(false)} />
+          <SidebarFooterLinks onNavigate={() => setOpen(false)} />
         </SheetContent>
       </Sheet>
     </>
@@ -173,19 +257,7 @@ function MobileNavLinks({ currentTenant, onNavigate }: { currentTenant: string |
         )
       })}
       <div className="h-px bg-border my-2" />
-      <Link
-        href="/clientes"
-        onClick={onNavigate}
-        className={cn(
-          'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
-          pathname.startsWith('/clientes')
-            ? 'bg-primary/10 text-primary border border-primary/20'
-            : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-        )}
-      >
-        <Building2 className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-        Clientes
-      </Link>
+      <GlobalNavLinks onNavigate={onNavigate} />
     </nav>
   )
 }
@@ -205,9 +277,7 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className={cn('flex items-center gap-3 px-4 h-14 border-b border-sidebar-border', collapsed && 'justify-center px-0')}>
-        <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-sky-500 to-purple-500 flex items-center justify-center flex-shrink-0">
-          <Zap className="w-4 h-4 text-white" />
-        </div>
+        <Image src="/logo-wide.png" alt="Connect-hub" width={63} height={36} className="h-9 w-auto flex-shrink-0" />
         <AnimatePresence>
           {!collapsed && (
             <motion.div
@@ -217,7 +287,7 @@ export function Sidebar() {
               transition={{ duration: 0.2 }}
               className="overflow-hidden"
             >
-              <p className="font-semibold text-sm text-foreground whitespace-nowrap">Emarsys-Hub</p>
+              <p className="font-semibold text-sm text-foreground whitespace-nowrap">Connect-hub</p>
               <p className="text-xs text-muted-foreground whitespace-nowrap">Multi-tenant</p>
             </motion.div>
           )}
@@ -266,33 +336,10 @@ export function Sidebar() {
 
         <div className="h-px bg-border my-2" />
 
-        {/* Clientes (fora do segmento [tenant]) */}
-        <Link
-          href="/clientes"
-          className={cn(
-            'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
-            collapsed && 'justify-center px-0',
-            pathname.startsWith('/clientes')
-              ? 'bg-primary/10 text-primary border border-primary/20'
-              : 'text-muted-foreground hover:text-foreground hover:bg-accent'
-          )}
-        >
-          <Building2 className="w-4 h-4 flex-shrink-0" aria-hidden="true" />
-          <AnimatePresence>
-            {!collapsed && (
-              <motion.span
-                initial={{ opacity: 0, width: 0 }}
-                animate={{ opacity: 1, width: 'auto' }}
-                exit={{ opacity: 0, width: 0 }}
-                transition={{ duration: 0.2 }}
-                className="overflow-hidden whitespace-nowrap"
-              >
-                Clientes
-              </motion.span>
-            )}
-          </AnimatePresence>
-        </Link>
+        <GlobalNavLinks collapsed={collapsed} />
       </nav>
+
+      <SidebarFooterLinks collapsed={collapsed} />
 
       {/* Collapse toggle */}
       <button
