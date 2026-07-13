@@ -132,6 +132,11 @@ function GlobalNavLinks({ collapsed = false, onNavigate }: { collapsed?: boolean
   )
 }
 
+// Subpáginas válidas de tenant — preserva a aba ao trocar de cliente APENAS
+// quando a rota atual é realmente uma delas (evita /cliente/cliente vindo de
+// páginas globais como /clientes/<slug>)
+const TENANT_SUBROUTES = new Set(tenantNavItems.map(i => i.key).filter(Boolean))
+
 function TenantSelector({ currentTenant, collapsed }: { currentTenant: string | null; collapsed: boolean }) {
   const router = useRouter()
   const pathname = usePathname()
@@ -142,7 +147,9 @@ function TenantSelector({ currentTenant, collapsed }: { currentTenant: string | 
 
   function handleChange(slug: string) {
     if (slug === currentTenant) return
-    const next = subRoute ? `/${slug}/${subRoute}` : `/${slug}`
+    const keepSubRoute =
+      currentTenant !== null && TENANT_SUBROUTES.has(subRoute.split('/')[0])
+    const next = keepSubRoute ? `/${slug}/${subRoute}` : `/${slug}`
     router.push(next)
   }
 
