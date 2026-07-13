@@ -98,7 +98,7 @@ export default function LoginPage() {
             </div>
             <div>
               <span className="text-xl font-bold tracking-tight">Connect-Hub</span>
-              <p className="text-xs text-muted-foreground -mt-0.5">VTEX ↔ SAP Emarsys</p>
+              <p className="text-xs text-muted-foreground -mt-0.5">Plataforma de integrações</p>
             </div>
           </div>
         </div>
