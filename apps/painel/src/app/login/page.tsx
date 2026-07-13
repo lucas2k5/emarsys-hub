@@ -6,7 +6,8 @@ import { z } from 'zod'
 import Image from 'next/image'
 import { useRouter } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
-import { Loader2 } from 'lucide-react'
+import { Loader2, Eye, EyeOff, AlertCircle, ArrowRight } from 'lucide-react'
+import { motion } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { api } from '@/lib/api'
@@ -19,16 +20,23 @@ const IS_MOCK =
   !process.env.NEXT_PUBLIC_API_URL
 
 const loginSchema = z.object({
-  email: z.string().email('Email inválido'),
-  password: z.string().min(1, 'Senha obrigatória'),
+  email: z.string().email('Informe um email válido'),
+  password: z.string().min(1, 'Informe sua senha'),
 })
 
 type LoginForm = z.infer<typeof loginSchema>
+
+const HIGHLIGHTS = [
+  'Produtos, pedidos, contatos e wishlist em sincronização contínua',
+  'Multi-cliente e multi-ambiente com credenciais isoladas',
+  'Trilha de auditoria completa de cada integração',
+]
 
 export default function LoginPage() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const [serverError, setServerError] = useState<string | null>(null)
+  const [showPassword, setShowPassword] = useState(false)
 
   // Em modo mock, a página de login redireciona diretamente para home
   // sem nenhuma interação com a API.
@@ -70,72 +78,157 @@ export default function LoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background px-4">
-      <div className="w-full max-w-sm space-y-8">
-        {/* Logo */}
-        <div className="flex flex-col items-center gap-3">
-          <Image src="/logo-wide.png" alt="Connect-hub" width={168} height={96} className="h-24 w-auto" priority />
-          <div className="text-center">
-            <p className="font-semibold text-foreground">Connect-hub</p>
-            <p className="text-sm text-muted-foreground">Integrações multi-tenant</p>
-          </div>
+    <div className="min-h-screen bg-background lg:grid lg:grid-cols-2">
+      {/* ── Painel de marca (desktop) ─────────────────────────────────────── */}
+      <div className="relative hidden lg:flex flex-col justify-between overflow-hidden border-r border-border p-10">
+        {/* Glow radial da identidade — profundidade sem glassmorphism */}
+        <div
+          aria-hidden="true"
+          className="absolute inset-0 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(ellipse 60% 45% at 30% 40%, color-mix(in oklch, var(--primary) 14%, transparent), transparent 70%), radial-gradient(ellipse 40% 30% at 75% 75%, color-mix(in oklch, var(--highlight) 7%, transparent), transparent 70%)',
+          }}
+        />
+
+        <div className="relative z-10 flex items-center gap-3">
+          <Image src="/logo-wide.png" alt="" width={56} height={32} className="h-8 w-auto" aria-hidden="true" />
+          <span className="font-semibold text-foreground tracking-tight">Connect-hub</span>
         </div>
 
-        {/* Formulário */}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-          <div className="space-y-1">
-            <label htmlFor="email" className="text-sm font-medium text-foreground">
-              Email
-            </label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              placeholder="admin@empresa.com"
-              className="border-border bg-accent"
-              aria-invalid={!!errors.email}
-              {...register('email')}
-            />
-            {errors.email && (
-              <p className="text-xs text-red-400">{errors.email.message}</p>
-            )}
+        <motion.div
+          initial={{ opacity: 0, y: 16 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.5 }}
+          className="relative z-10 max-w-md"
+        >
+          <Image
+            src="/logo-wide.png"
+            alt=""
+            width={210}
+            height={120}
+            className="h-28 w-auto mb-8"
+            priority
+            aria-hidden="true"
+          />
+          <h1 className="text-3xl font-bold tracking-tight text-foreground leading-tight [text-wrap:balance]">
+            Suas integrações de marketing, em um só lugar
+          </h1>
+          <ul className="mt-6 space-y-3">
+            {HIGHLIGHTS.map((item) => (
+              <li key={item} className="flex items-start gap-2.5 text-sm text-muted-foreground">
+                <span className="mt-1.5 w-1.5 h-1.5 rounded-full bg-highlight shrink-0" aria-hidden="true" />
+                {item}
+              </li>
+            ))}
+          </ul>
+        </motion.div>
+
+        <p className="relative z-10 text-xs text-muted-foreground/70">
+          Connect-hub · Plataforma multi-tenant de integrações
+        </p>
+      </div>
+
+      {/* ── Formulário ────────────────────────────────────────────────────── */}
+      <div className="flex min-h-screen lg:min-h-0 items-center justify-center px-4 py-10">
+        <motion.div
+          initial={{ opacity: 0, y: 12 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.1 }}
+          className="w-full max-w-sm"
+        >
+          {/* Logo no mobile (o painel de marca some) */}
+          <div className="lg:hidden flex flex-col items-center gap-2 mb-8">
+            <Image src="/logo-wide.png" alt="Connect-hub" width={126} height={72} className="h-16 w-auto" priority />
+            <p className="font-semibold text-foreground">Connect-hub</p>
           </div>
 
-          <div className="space-y-1">
-            <label htmlFor="password" className="text-sm font-medium text-foreground">
-              Senha
-            </label>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              placeholder="••••••••"
-              className="border-border bg-accent"
-              aria-invalid={!!errors.password}
-              {...register('password')}
-            />
-            {errors.password && (
-              <p className="text-xs text-red-400">{errors.password.message}</p>
-            )}
+          <div className="mb-8 hidden lg:block">
+            <h2 className="text-2xl font-bold tracking-tight text-foreground">Bem-vindo de volta</h2>
+            <p className="text-sm text-muted-foreground mt-1.5">Entre com sua conta para acessar o painel</p>
           </div>
 
-          {serverError && (
-            <div className="px-4 py-3 rounded-xl bg-red-500/10 border border-red-500/20">
-              <p className="text-sm text-red-400">{serverError}</p>
+          <form onSubmit={handleSubmit(onSubmit)} className="space-y-5" noValidate>
+            <div className="space-y-1.5">
+              <label htmlFor="email" className="text-sm font-medium text-foreground">Email</label>
+              <Input
+                id="email"
+                type="email"
+                autoComplete="email"
+                autoFocus
+                placeholder="voce@empresa.com"
+                className="h-11 border-border bg-accent"
+                aria-invalid={!!errors.email}
+                aria-describedby={errors.email ? 'email-error' : undefined}
+                {...register('email')}
+              />
+              {errors.email && (
+                <p id="email-error" className="flex items-center gap-1.5 text-xs text-rose-400">
+                  <AlertCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  {errors.email.message}
+                </p>
+              )}
             </div>
-          )}
 
-          <Button type="submit" className="w-full" disabled={isSubmitting}>
-            {isSubmitting ? (
-              <>
-                <Loader2 className="w-4 h-4 mr-2 animate-spin" />
-                Entrando...
-              </>
-            ) : (
-              'Entrar'
+            <div className="space-y-1.5">
+              <label htmlFor="password" className="text-sm font-medium text-foreground">Senha</label>
+              <div className="relative">
+                <Input
+                  id="password"
+                  type={showPassword ? 'text' : 'password'}
+                  autoComplete="current-password"
+                  placeholder="Sua senha"
+                  className="h-11 border-border bg-accent pr-11"
+                  aria-invalid={!!errors.password}
+                  aria-describedby={errors.password ? 'password-error' : undefined}
+                  {...register('password')}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(v => !v)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground transition-colors rounded focus:outline-none focus-visible:ring-1 focus-visible:ring-primary"
+                  aria-label={showPassword ? 'Ocultar senha' : 'Mostrar senha'}
+                >
+                  {showPassword ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                </button>
+              </div>
+              {errors.password && (
+                <p id="password-error" className="flex items-center gap-1.5 text-xs text-rose-400">
+                  <AlertCircle className="w-3 h-3 shrink-0" aria-hidden="true" />
+                  {errors.password.message}
+                </p>
+              )}
+            </div>
+
+            {serverError && (
+              <div role="alert" className="flex items-start gap-2.5 px-4 py-3 rounded-xl bg-rose-500/10 border border-rose-500/20">
+                <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" aria-hidden="true" />
+                <div>
+                  <p className="text-sm text-rose-400 font-medium">Não foi possível entrar</p>
+                  <p className="text-xs text-rose-400/80 mt-0.5">{serverError}</p>
+                </div>
+              </div>
             )}
-          </Button>
-        </form>
+
+            <Button type="submit" className="w-full h-11 gap-2 font-medium" disabled={isSubmitting}>
+              {isSubmitting ? (
+                <>
+                  <Loader2 className="w-4 h-4 animate-spin" aria-hidden="true" />
+                  Entrando...
+                </>
+              ) : (
+                <>
+                  Entrar
+                  <ArrowRight className="w-4 h-4" aria-hidden="true" />
+                </>
+              )}
+            </Button>
+          </form>
+
+          <p className="text-xs text-muted-foreground/70 text-center mt-8">
+            Acesso restrito. Precisa de uma conta? Fale com um administrador.
+          </p>
+        </motion.div>
       </div>
     </div>
   )
