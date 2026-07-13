@@ -1,5 +1,6 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
+  "regions": ["gru1"],
   "installCommand": "npm install --workspaces=false",
   "buildCommand": "npm run build",
   "framework": null,
