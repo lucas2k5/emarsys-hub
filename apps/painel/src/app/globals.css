@@ -9,8 +9,8 @@
   --card-foreground: oklch(0.13 0.02 264);
   --popover: oklch(1.0 0 0);
   --popover-foreground: oklch(0.13 0.02 264);
-  --primary: oklch(0.55 0.21 255);
-  --primary-foreground: oklch(0.99 0.002 247);
+  --primary: oklch(0.58 0.227 260);   /* #0066FF — mesmo azul da identidade no claro */
+  --primary-foreground: oklch(1 0 0);
   --secondary: oklch(0.94 0.008 247);
   --secondary-foreground: oklch(0.13 0.02 264);
   --muted: oklch(0.96 0.005 247);

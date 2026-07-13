@@ -190,7 +190,7 @@ function TenantSelector({ currentTenant, collapsed }: { currentTenant: string | 
 function Logo({ collapsed }: { collapsed?: boolean }) {
   return (
     <div className={cn('flex items-center gap-3', collapsed && 'justify-center')}>
-      <Image src="/logo-wide.png" alt="Connect-hub" width={63} height={36} className="h-9 w-auto flex-shrink-0" />
+      <Image src="/logo-transparent.png" alt="Connect-hub" width={59} height={36} className="h-9 w-auto flex-shrink-0" />
       {!collapsed && (
         <div>
           <p className="font-semibold text-sm text-foreground leading-tight">Connect-hub</p>
@@ -284,7 +284,7 @@ export function Sidebar() {
     >
       {/* Logo */}
       <div className={cn('flex items-center gap-3 px-4 h-14 border-b border-sidebar-border', collapsed && 'justify-center px-0')}>
-        <Image src="/logo-wide.png" alt="Connect-hub" width={63} height={36} className="h-9 w-auto flex-shrink-0" />
+        <Image src="/logo-transparent.png" alt="Connect-hub" width={59} height={36} className="h-9 w-auto flex-shrink-0" />
         <AnimatePresence>
           {!collapsed && (
             <motion.div
