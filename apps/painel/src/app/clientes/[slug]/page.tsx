@@ -1,13 +1,14 @@
 'use client'
-import { use, useState } from 'react'
+import { use, useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useForm, useFieldArray } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
 import {
-  ArrowLeft, Loader2, Plus, Trash2, Save,
-  CheckCircle2, AlertCircle, Eye, EyeOff,
+  ArrowLeft, Loader2, Plus, Trash2, Save, CheckCircle2,
+  Eye, EyeOff, KeyRound, Shield, Send, Map as MapIcon, Zap,
 } from 'lucide-react'
+import type { LucideIcon } from 'lucide-react'
 import Link from 'next/link'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
@@ -15,11 +16,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
+  Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter,
 } from '@/components/ui/dialog'
 import { useRouter } from 'next/navigation'
 import { useTenant, useUpdateTenant, useDeleteTenant } from '@/hooks/useTenants'
@@ -32,13 +29,7 @@ import {
 } from '@/hooks/useEnvironment'
 import { formatDate } from '@/lib/utils'
 import type {
-  Environment,
-  ConnectionKind,
-  Connection,
-  FieldMapping,
-  Flow,
-  FlowKey,
-  TenantStatus,
+  Environment, ConnectionKind, Connection, FieldMapping, Flow, FlowKey, TenantStatus,
 } from '@/types/api'
 
 // ─── Schemas ──────────────────────────────────────────────────────────────────
@@ -62,7 +53,7 @@ const fieldMappingsSchema = z.object({
   })),
 })
 
-// ─── Connection config definitions per kind ──────────────────────────────────
+// ─── Definições de campos por conexão ─────────────────────────────────────────
 
 type FieldDef = { key: string; label: string; placeholder?: string; isSecret?: boolean }
 
@@ -70,6 +61,7 @@ const CONNECTION_FIELDS: Record<ConnectionKind, FieldDef[]> = {
   vtex: [
     { key: 'baseUrl', label: 'Base URL' },
     { key: 'appKey', label: 'App Key' },
+    { key: 'storeBaseUrl', label: 'URL pública da loja (links de SKU)' },
     { key: 'appToken', label: 'App Token', isSecret: true },
   ],
   vtex_io_app: [
@@ -100,30 +92,71 @@ const CONNECTION_FIELDS: Record<ConnectionKind, FieldDef[]> = {
     { key: 'password', label: 'Senha', isSecret: true },
   ],
   contacts_webhook: [
-    { key: 'url', label: 'URL do webhook' },
-    { key: 'authHeader', label: 'Header de autenticação', isSecret: true },
     { key: 'timeout', label: 'Timeout (ms)' },
+    { key: 'authHeader', label: 'Token de autenticação do webhook', isSecret: true },
   ],
 }
 
-const CONNECTION_LABELS: Record<ConnectionKind, string> = {
-  vtex: 'VTEX API',
-  vtex_io_app: 'VTEX IO App',
-  emarsys_oauth2: 'Emarsys OAuth2',
-  emarsys_wsse: 'Emarsys WSSE',
-  emarsys_sales_api: 'Emarsys Sales API',
-  sftp_products: 'SFTP Produtos',
-  contacts_webhook: 'Webhook Contatos',
+const CONNECTION_LABELS: Record<ConnectionKind, { title: string; hint?: string }> = {
+  vtex: { title: 'VTEX API', hint: 'Catálogo, OMS e Master Data' },
+  vtex_io_app: { title: 'VTEX IO App', hint: 'App customizado (opcional)' },
+  emarsys_oauth2: { title: 'OAuth2', hint: 'Contacts API v3 e Wishlist' },
+  emarsys_wsse: { title: 'WSSE', hint: 'Autenticação legada (opcional)' },
+  emarsys_sales_api: { title: 'Sales Data API', hint: 'Envio de pedidos' },
+  sftp_products: { title: 'SFTP de catálogo', hint: 'CSV de produtos para a Emarsys' },
+  contacts_webhook: { title: 'Webhook de contatos', hint: 'Recebimento de contatos do e-commerce' },
 }
 
-const FLOW_LABELS: Record<FlowKey, string> = {
-  products: 'Produtos',
-  orders: 'Pedidos',
-  contacts: 'Contatos',
-  wishlist: 'Wishlist',
+const FLOW_META: Record<FlowKey, { label: string; desc: string }> = {
+  products: { label: 'Produtos', desc: 'Catálogo VTEX → CSV → SFTP Emarsys' },
+  orders: { label: 'Pedidos', desc: 'VTEX OMS → Emarsys Sales Data API' },
+  contacts: { label: 'Contatos', desc: 'Webhook → Dedupe → Emarsys Contacts v3' },
+  wishlist: { label: 'Wishlist', desc: 'VTEX Master Data → Emarsys wishlist/update' },
 }
 
-// ─── Tab: Dados do Tenant ─────────────────────────────────────────────────────
+// ─── Blocos de UI compartilhados ──────────────────────────────────────────────
+
+/** Card de seção no padrão da referência: chip de ícone + título + descrição. */
+function SettingsSection({ title, description, icon: Icon, children }: {
+  title: string
+  description?: string
+  icon: LucideIcon
+  children: React.ReactNode
+}) {
+  return (
+    <div className="bg-card border border-border rounded-2xl overflow-hidden">
+      <div className="flex items-center gap-3 p-5 border-b border-border">
+        <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+          <Icon className="w-5 h-5 text-primary" aria-hidden="true" />
+        </div>
+        <div>
+          <h3 className="text-sm font-semibold text-foreground">{title}</h3>
+          {description && <p className="text-xs text-muted-foreground mt-0.5">{description}</p>}
+        </div>
+      </div>
+      <div className="p-5">{children}</div>
+    </div>
+  )
+}
+
+/** Switch no padrão visual do produto. */
+function Toggle({ checked, onChange, disabled, label }: { checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; label: string }) {
+  return (
+    <div
+      className={`relative w-9 h-5 rounded-full transition-colors shrink-0 ${disabled ? 'opacity-50' : 'cursor-pointer'} ${checked ? 'bg-emerald-500' : 'bg-border'}`}
+      onClick={() => !disabled && onChange(!checked)}
+      role="switch"
+      aria-checked={checked}
+      aria-label={label}
+      tabIndex={0}
+      onKeyDown={e => e.key === ' ' && !disabled && onChange(!checked)}
+    >
+      <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${checked ? 'translate-x-4' : ''}`} />
+    </div>
+  )
+}
+
+// ─── Aba: Dados do cliente ────────────────────────────────────────────────────
 
 function DadosTab({ slug }: { slug: string }) {
   const router = useRouter()
@@ -142,7 +175,6 @@ function DadosTab({ slug }: { slug: string }) {
     const updated = await updateTenant.mutateAsync(values)
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
-    // Slug renomeado → a página atual deixa de existir; navega pra nova URL
     if (updated.slug !== slug) {
       router.replace(`/clientes/${updated.slug}`)
     }
@@ -222,113 +254,20 @@ function DadosTab({ slug }: { slug: string }) {
   )
 }
 
-// ─── Tab: Ambientes ───────────────────────────────────────────────────────────
+// ─── Formulário de uma conexão (dentro das seções) ────────────────────────────
 
-function AmbientesTab({ slug, onSelectEnv }: { slug: string; onSelectEnv: (env: Environment) => void }) {
-  const { data: tenant, isLoading } = useTenant(slug)
-  const createEnv = useCreateEnvironment(slug)
-  const [dialogOpen, setDialogOpen] = useState(false)
-
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<z.infer<typeof createEnvSchema>>({
-    resolver: zodResolver(createEnvSchema),
-  })
-
-  async function onSubmit(values: z.infer<typeof createEnvSchema>) {
-    await createEnv.mutateAsync(values)
-    reset()
-    setDialogOpen(false)
-  }
-
-  if (isLoading) return <div className="space-y-3 py-4">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-14 w-full rounded-xl" />)}</div>
-
-  const environments = tenant?.environments ?? []
-
-  return (
-    <div className="py-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{environments.length} ambiente(s) configurado(s)</p>
-        <Button size="sm" onClick={() => setDialogOpen(true)} className="gap-1.5">
-          <Plus className="w-3.5 h-3.5" /> Novo ambiente
-        </Button>
-      </div>
-
-      {!environments.length ? (
-        <div className="flex flex-col items-center justify-center py-12 gap-3 border border-dashed border-border rounded-2xl">
-          <p className="text-sm text-muted-foreground">Nenhum ambiente criado</p>
-          <Button variant="outline" size="sm" onClick={() => setDialogOpen(true)}>
-            <Plus className="w-3.5 h-3.5 mr-1.5" /> Criar ambiente
-          </Button>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {environments.map(env => (
-            <div
-              key={env.id}
-              className="flex items-center justify-between p-4 rounded-xl border border-border bg-accent/30 hover:bg-accent/60 transition-colors cursor-pointer"
-              onClick={() => onSelectEnv(env)}
-            >
-              <div className="flex items-center gap-3">
-                <div className="flex flex-col">
-                  <span className="text-sm font-medium text-foreground">{env.name}</span>
-                  <span className="text-xs font-mono text-muted-foreground">{env.slug}</span>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <Badge variant="outline" className={env.status === 'active' ? 'border-emerald-500/30 text-emerald-400 bg-emerald-500/10' : 'border-border text-muted-foreground'}>
-                  {env.status === 'active' ? 'Ativo' : 'Inativo'}
-                </Badge>
-                <span className="text-xs text-primary hover:underline">Configurar</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      <Dialog open={dialogOpen} onOpenChange={v => { if (!v) { reset(); setDialogOpen(false) } }}>
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader><DialogTitle>Novo ambiente</DialogTitle></DialogHeader>
-          <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 mt-2" noValidate>
-            <div className="space-y-1">
-              <label htmlFor="envSlug" className="text-sm font-medium text-foreground">Slug</label>
-              <Input id="envSlug" placeholder="ex: producao" className="border-border bg-accent font-mono" aria-invalid={!!errors.slug} {...register('slug')} />
-              {errors.slug && <p className="text-xs text-red-400">{errors.slug.message}</p>}
-            </div>
-            <div className="space-y-1">
-              <label htmlFor="envName" className="text-sm font-medium text-foreground">Nome</label>
-              <Input id="envName" placeholder="ex: Produção" className="border-border bg-accent" aria-invalid={!!errors.name} {...register('name')} />
-              {errors.name && <p className="text-xs text-red-400">{errors.name.message}</p>}
-            </div>
-            <DialogFooter className="gap-2">
-              <Button type="button" variant="outline" onClick={() => { reset(); setDialogOpen(false) }}>Cancelar</Button>
-              <Button type="submit" disabled={isSubmitting || createEnv.isPending}>
-                {(isSubmitting || createEnv.isPending) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
-                Criar ambiente
-              </Button>
-            </DialogFooter>
-          </form>
-        </DialogContent>
-      </Dialog>
-    </div>
-  )
-}
-
-// ─── Connection Card ──────────────────────────────────────────────────────────
-
-function ConnectionCard({ envId, connection }: { envId: string; connection: Connection }) {
+function ConnectionForm({ envId, connection }: { envId: string; connection: Connection }) {
   const updateConn = useUpdateConnection(envId, connection.kind)
   const fields = CONNECTION_FIELDS[connection.kind] ?? []
+  const meta = CONNECTION_LABELS[connection.kind]
   const [saved, setSaved] = useState(false)
   const [showSecrets, setShowSecrets] = useState<Record<string, boolean>>({})
 
   const { register, handleSubmit, formState: { isSubmitting } } = useForm<{ config: Record<string, string>; secrets: Record<string, string> }>({
-    defaultValues: {
-      config: connection.config ?? {},
-      secrets: {},
-    },
+    defaultValues: { config: connection.config ?? {}, secrets: {} },
   })
 
   async function onSubmit(values: { config: Record<string, string>; secrets: Record<string, string> }) {
-    // Filtra secrets vazios — só envia se preenchido
     const secrets: Record<string, string> = {}
     fields.filter(f => f.isSecret).forEach(f => {
       if (values.secrets[f.key]) secrets[f.key] = values.secrets[f.key]
@@ -338,105 +277,91 @@ function ConnectionCard({ envId, connection }: { envId: string; connection: Conn
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const configFields = fields.filter(f => !f.isSecret)
-  const secretFields = fields.filter(f => f.isSecret)
-
   return (
-    <div className="p-4 rounded-xl border border-border bg-accent/20 space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-foreground">{CONNECTION_LABELS[connection.kind]}</p>
-        {connection.hasSecrets && (
-          <Badge variant="outline" className="border-emerald-500/30 text-emerald-400 bg-emerald-500/10 text-xs">
-            <CheckCircle2 className="w-3 h-3 mr-1" />
-            Credenciais salvas
-          </Badge>
-        )}
-      </div>
-      <form onSubmit={handleSubmit(onSubmit)} className="space-y-3" noValidate>
-        {configFields.map(field => (
-          <div key={field.key} className="space-y-1">
-            <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
-            <Input
-              placeholder={field.placeholder}
-              className="border-border bg-background text-sm h-8"
-              {...register(`config.${field.key}`)}
-            />
-          </div>
-        ))}
-        {secretFields.length > 0 && (
-          <div className="pt-2 border-t border-border space-y-3">
-            <p className="text-xs text-muted-foreground">
-              {connection.hasSecrets ? 'Deixe em branco para manter as credenciais atuais' : 'Defina as credenciais'}
-            </p>
-            {secretFields.map(field => (
-              <div key={field.key} className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">{field.label}</label>
-                <div className="relative">
-                  <Input
-                    type={showSecrets[field.key] ? 'text' : 'password'}
-                    placeholder={connection.hasSecrets ? '••••••••' : field.placeholder ?? ''}
-                    className="border-border bg-background text-sm h-8 pr-8"
-                    {...register(`secrets.${field.key}`)}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowSecrets(prev => ({ ...prev, [field.key]: !prev[field.key] }))}
-                    className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                    aria-label={showSecrets[field.key] ? 'Ocultar' : 'Exibir'}
-                  >
-                    {showSecrets[field.key] ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                  </button>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex items-center gap-2 pt-1">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-3">
+      <div className="flex items-center justify-between gap-3 flex-wrap">
+        <div className="flex items-center gap-2">
+          <p className="text-sm font-medium text-foreground">{meta.title}</p>
+          {meta.hint && <span className="text-xs text-muted-foreground">· {meta.hint}</span>}
+        </div>
+        <div className="flex items-center gap-2">
+          {connection.hasSecrets && (
+            <Badge variant="outline" className="border-emerald-500/30 text-emerald-400 bg-emerald-500/10 text-xs">
+              <CheckCircle2 className="w-3 h-3 mr-1" aria-hidden="true" /> Credenciais salvas
+            </Badge>
+          )}
           <Button type="submit" size="sm" disabled={isSubmitting || updateConn.isPending} className="gap-1.5 h-8">
-            {(isSubmitting || updateConn.isPending) ? <Loader2 className="w-3 h-3 animate-spin" /> : saved ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Save className="w-3 h-3" />}
+            {(isSubmitting || updateConn.isPending) ? <Loader2 className="w-3 h-3 animate-spin" /> : saved ? <CheckCircle2 className="w-3 h-3 text-emerald-300" /> : <Save className="w-3 h-3" />}
             {saved ? 'Salvo!' : 'Salvar'}
           </Button>
-          {updateConn.error && <p className="text-xs text-red-400">{updateConn.error.message}</p>}
         </div>
-      </form>
-    </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {fields.map(field => (
+          <div key={field.key}>
+            <label className="text-xs text-muted-foreground">{field.label}</label>
+            {field.isSecret ? (
+              <div className="relative mt-1">
+                <Input
+                  type={showSecrets[field.key] ? 'text' : 'password'}
+                  placeholder={connection.hasSecrets ? '•••••••• (deixe em branco para manter)' : ''}
+                  className="pr-10 font-mono text-sm bg-background/50 border-border"
+                  {...register(`secrets.${field.key}`)}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecrets(prev => ({ ...prev, [field.key]: !prev[field.key] }))}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                  aria-label={showSecrets[field.key] ? 'Ocultar' : 'Exibir'}
+                >
+                  {showSecrets[field.key] ? <EyeOff className="w-4 h-4" aria-hidden="true" /> : <Eye className="w-4 h-4" aria-hidden="true" />}
+                </button>
+              </div>
+            ) : (
+              <Input className="mt-1 bg-background/50 border-border text-sm" {...register(`config.${field.key}`)} />
+            )}
+          </div>
+        ))}
+      </div>
+      {updateConn.error && <p className="text-xs text-red-400">{updateConn.error.message}</p>}
+    </form>
   )
 }
 
-// ─── Tab: Conexões ────────────────────────────────────────────────────────────
-
-function ConexoesTab({ envId }: { envId: string }) {
-  const { data: env, isLoading } = useEnvironment(envId)
-
-  if (isLoading) return <div className="space-y-3 py-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-36 w-full rounded-xl" />)}</div>
-  if (!env) return <p className="text-sm text-muted-foreground py-4">Ambiente não encontrado.</p>
-
-  const allKinds = Object.keys(CONNECTION_FIELDS) as ConnectionKind[]
-  const existingByKind = new Map(env.connections.map(c => [c.kind, c]))
-
+/** Agrupa vários kinds numa SettingsSection, separados por divisórias. */
+function ConnectionGroup({ envId, connections, kinds }: {
+  envId: string
+  connections: Connection[]
+  kinds: ConnectionKind[]
+}) {
+  const byKind = new Map(connections.map(c => [c.kind, c]))
   return (
-    <div className="py-4 space-y-4">
-      {allKinds.map(kind => {
-        const conn = existingByKind.get(kind) ?? { kind, config: {}, hasSecrets: false }
-        return <ConnectionCard key={kind} envId={envId} connection={conn} />
-      })}
+    <div className="divide-y divide-border [&>*]:py-5 [&>*:first-child]:pt-0 [&>*:last-child]:pb-0">
+      {kinds.map(kind => (
+        <ConnectionForm
+          key={kind}
+          envId={envId}
+          connection={byKind.get(kind) ?? { kind, config: {}, hasSecrets: false }}
+        />
+      ))}
     </div>
   )
 }
 
-// ─── Tab: Campos Emarsys ──────────────────────────────────────────────────────
+// ─── Seção: Mapeamento de campos ──────────────────────────────────────────────
 
-function CamposTab({ envId }: { envId: string }) {
-  const { data: env, isLoading } = useEnvironment(envId)
+function FieldMappingsSection({ envId, env }: { envId: string; env: { fieldMappings: FieldMapping[] } }) {
   const updateMappings = useUpdateFieldMappings(envId)
   const [saved, setSaved] = useState(false)
 
-  const { register, handleSubmit, control, formState: { isSubmitting } } = useForm<{ mappings: FieldMapping[] }>({
+  const { register, handleSubmit, control, watch, formState: { isSubmitting } } = useForm<{ mappings: FieldMapping[] }>({
     resolver: zodResolver(fieldMappingsSchema),
-    values: env ? { mappings: env.fieldMappings } : undefined,
+    values: { mappings: env.fieldMappings },
   })
 
   const { fields, append, remove } = useFieldArray({ control, name: 'mappings' })
+  const watched = watch('mappings')
 
   async function onSubmit(values: { mappings: FieldMapping[] }) {
     await updateMappings.mutateAsync(values.mappings)
@@ -444,60 +369,68 @@ function CamposTab({ envId }: { envId: string }) {
     setTimeout(() => setSaved(false), 2000)
   }
 
-  if (isLoading) return <div className="space-y-3 py-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-10 w-full rounded-xl" />)}</div>
-
   return (
-    <form onSubmit={handleSubmit(onSubmit)} className="py-4 space-y-4" noValidate>
-      <div className="overflow-x-auto rounded-xl border border-border">
+    <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-4">
+      <div className="overflow-x-auto">
         <table className="w-full text-sm">
-          <thead className="bg-accent/30">
-            <tr className="border-b border-border">
-              <th className="text-left py-3 px-4 text-xs text-muted-foreground font-medium">Campo do sistema</th>
-              <th className="text-left py-3 px-4 text-xs text-muted-foreground font-medium">ID Emarsys</th>
-              <th className="text-center py-3 px-4 text-xs text-muted-foreground font-medium">External ID</th>
-              <th className="py-3 px-4"></th>
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground border-b border-border">
+              <th className="pb-3 pr-3 font-medium">Campo do sistema</th>
+              <th className="pb-3 pr-3 font-medium">Field ID Emarsys</th>
+              <th className="pb-3 pr-3 font-medium text-center">External ID</th>
+              <th className="pb-3 pr-3 font-medium">Status</th>
+              <th className="pb-3"></th>
             </tr>
           </thead>
           <tbody>
-            {fields.map((field, idx) => (
-              <tr key={field.id} className="border-b border-border">
-                <td className="py-2 px-3">
-                  <Input className="border-border bg-accent font-mono text-xs h-8" {...register(`mappings.${idx}.fieldKey`)} />
-                </td>
-                <td className="py-2 px-3">
-                  <Input className="border-border bg-accent font-mono text-xs h-8" {...register(`mappings.${idx}.emarsysFieldId`)} />
-                </td>
-                <td className="py-2 px-3 text-center">
-                  <input type="checkbox" {...register(`mappings.${idx}.isExternalId`)} className="w-4 h-4 accent-primary" />
-                </td>
-                <td className="py-2 px-3">
-                  <button
-                    type="button"
-                    onClick={() => remove(idx)}
-                    className="text-muted-foreground hover:text-red-400 transition-colors"
-                    aria-label="Remover mapeamento"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                </td>
-              </tr>
-            ))}
+            {fields.map((field, idx) => {
+              const row = watched?.[idx]
+              const ok = row?.fieldKey && row?.emarsysFieldId
+              return (
+                <tr key={field.id} className="border-b border-border last:border-0">
+                  <td className="py-2 pr-3">
+                    <Input className="border-border bg-background/50 font-mono text-xs h-8" placeholder="ex: customer_id" {...register(`mappings.${idx}.fieldKey`)} />
+                  </td>
+                  <td className="py-2 pr-3">
+                    <Input className="w-24 border-border bg-background/50 font-mono text-xs h-8" placeholder="ex: 3695" {...register(`mappings.${idx}.emarsysFieldId`)} />
+                  </td>
+                  <td className="py-2 pr-3 text-center">
+                    <input type="checkbox" {...register(`mappings.${idx}.isExternalId`)} className="w-4 h-4 accent-primary" aria-label="Usar como external ID" />
+                  </td>
+                  <td className="py-2 pr-3">
+                    {ok
+                      ? <span className="text-xs text-emerald-400">✓ Configurado</span>
+                      : <span className="text-xs text-muted-foreground">Incompleto</span>}
+                  </td>
+                  <td className="py-2">
+                    <button
+                      type="button"
+                      onClick={() => remove(idx)}
+                      className="text-muted-foreground hover:text-red-400 transition-colors"
+                      aria-label="Remover mapeamento"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" aria-hidden="true" />
+                    </button>
+                  </td>
+                </tr>
+              )
+            })}
           </tbody>
         </table>
+        {!fields.length && (
+          <p className="text-xs text-muted-foreground py-4">
+            Nenhum campo mapeado. Os campos de sistema da Emarsys (nome, email, telefone…) já têm IDs padrão — mapeie aqui os campos custom da conta (ex: customer_id, cpf, buyer_type).
+          </p>
+        )}
       </div>
 
       <div className="flex items-center gap-3">
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          className="gap-1.5 border-border"
-          onClick={() => append({ fieldKey: '', emarsysFieldId: '', isExternalId: false })}
-        >
-          <Plus className="w-3.5 h-3.5" /> Adicionar campo
+        <Button type="button" variant="outline" size="sm" className="gap-1.5 border-border"
+          onClick={() => append({ fieldKey: '', emarsysFieldId: '', isExternalId: false })}>
+          <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Adicionar campo
         </Button>
         <Button type="submit" size="sm" disabled={isSubmitting || updateMappings.isPending} className="gap-1.5">
-          {(isSubmitting || updateMappings.isPending) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" /> : <Save className="w-3.5 h-3.5" />}
+          {(isSubmitting || updateMappings.isPending) ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : saved ? <CheckCircle2 className="w-3.5 h-3.5 text-emerald-300" /> : <Save className="w-3.5 h-3.5" />}
           {saved ? 'Salvo!' : 'Salvar mapeamentos'}
         </Button>
         {updateMappings.error && <p className="text-xs text-red-400">{updateMappings.error.message}</p>}
@@ -506,11 +439,7 @@ function CamposTab({ envId }: { envId: string }) {
   )
 }
 
-// ─── Flow Toggle Card ─────────────────────────────────────────────────────────
-
 // ─── Agendamento amigável ↔ cron ─────────────────────────────────────────────
-// O backend continua 100% em cron (environment_flows.cron_expression);
-// aqui só traduzimos pra linguagem de gente.
 
 type ScheduleMode = 'minutes' | 'hours' | 'daily' | 'custom'
 type Schedule = { mode: ScheduleMode; n: number; time: string; raw: string }
@@ -538,49 +467,61 @@ function scheduleToCron(s: Schedule): string {
 }
 
 function scheduleSummary(s: Schedule): string {
-  if (s.mode === 'minutes') return `Executa a cada ${s.n} minuto${s.n > 1 ? 's' : ''}`
-  if (s.mode === 'hours') return `Executa a cada ${s.n} hora${s.n > 1 ? 's' : ''}`
-  if (s.mode === 'daily') return `Executa diariamente às ${s.time}`
-  return 'Expressão cron personalizada'
+  if (s.mode === 'minutes') return `a cada ${s.n} min`
+  if (s.mode === 'hours') return `a cada ${s.n}h`
+  if (s.mode === 'daily') return `diário às ${s.time}`
+  return s.raw || 'cron personalizado'
 }
 
-function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
+// ─── Seção: Automações ────────────────────────────────────────────────────────
+
+function FlowRow({ envId, flow }: { envId: string; flow: Flow }) {
   const updateFlow = useUpdateFlow(envId, flow.flow)
+  const meta = FLOW_META[flow.flow]
   const [enabled, setEnabled] = useState(flow.enabled)
+  const [debug, setDebug] = useState(flow.settings?.debug === true)
   const [schedule, setSchedule] = useState<Schedule>(() => parseCronToSchedule(flow.cronExpression))
   const [saved, setSaved] = useState(false)
+  const [dirty, setDirty] = useState(false)
+
+  function touch<T>(setter: (v: T) => void) {
+    return (v: T) => { setter(v); setDirty(true) }
+  }
 
   async function handleSave() {
     const cron = scheduleToCron(schedule)
-    await updateFlow.mutateAsync({ enabled, cronExpression: cron || null })
+    await updateFlow.mutateAsync({
+      enabled,
+      cronExpression: cron || null,
+      settings: { ...(flow.settings ?? {}), debug },
+    })
     setSaved(true)
+    setDirty(false)
     setTimeout(() => setSaved(false), 2000)
   }
 
-  const selectCls = 'text-sm rounded-xl border border-border bg-background px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50'
+  const selectCls = 'text-xs rounded-lg border border-border bg-background px-2 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary disabled:opacity-50'
 
   return (
-    <div className="p-4 rounded-xl border border-border bg-accent/20 space-y-3">
-      <div className="flex items-center justify-between">
-        <p className="text-sm font-semibold text-foreground">{FLOW_LABELS[flow.flow]}</p>
-        <label className="flex items-center gap-2 cursor-pointer">
-          <span className="text-xs text-muted-foreground">{enabled ? 'Ativo' : 'Inativo'}</span>
-          <div
-            className={`relative w-9 h-5 rounded-full transition-colors ${enabled ? 'bg-emerald-500' : 'bg-border'}`}
-            onClick={() => setEnabled(!enabled)}
-            role="switch"
-            aria-checked={enabled}
-            tabIndex={0}
-            onKeyDown={e => e.key === ' ' && setEnabled(!enabled)}
-          >
-            <div className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : ''}`} />
+    <div className="py-4 first:pt-0 last:pb-0">
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="text-sm font-medium text-foreground">{meta.label}</span>
+            <span className="text-xs text-muted-foreground bg-secondary/50 px-2 py-0.5 rounded font-mono">
+              {enabled ? scheduleSummary(schedule) : 'desativado'}
+            </span>
+            {debug && (
+              <Badge variant="outline" className="border-amber-500/30 text-amber-400 bg-amber-500/10 text-xs">debug</Badge>
+            )}
           </div>
-        </label>
+          <p className="text-xs text-muted-foreground mt-0.5">{meta.desc}</p>
+        </div>
+        <Toggle checked={enabled} onChange={touch(setEnabled)} label={`Ativar automação de ${meta.label}`} />
       </div>
 
-      <div className="space-y-2">
-        <label className="text-xs font-medium text-muted-foreground">Frequência</label>
-        <div className="flex flex-wrap items-center gap-2">
+      {enabled && (
+        <div className="mt-3 flex flex-wrap items-center gap-2 pl-0.5">
           {(schedule.mode === 'minutes' || schedule.mode === 'hours') && (
             <>
               <span className="text-xs text-muted-foreground">A cada</span>
@@ -589,21 +530,19 @@ function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
                 min={1}
                 max={schedule.mode === 'minutes' ? 59 : 23}
                 value={schedule.n}
-                disabled={!enabled}
                 onChange={e => {
                   const max = schedule.mode === 'minutes' ? 59 : 23
                   const n = Math.max(1, Math.min(max, Number(e.target.value) || 1))
-                  setSchedule({ ...schedule, n })
+                  touch(setSchedule)({ ...schedule, n })
                 }}
-                className="border-border bg-background text-sm h-8 w-20"
+                className="border-border bg-background text-xs h-8 w-16"
               />
             </>
           )}
           <select
             className={selectCls}
             value={schedule.mode}
-            disabled={!enabled}
-            onChange={e => setSchedule({ ...schedule, mode: e.target.value as ScheduleMode })}
+            onChange={e => touch(setSchedule)({ ...schedule, mode: e.target.value as ScheduleMode })}
             aria-label="Unidade de frequência"
           >
             <option value="minutes">Minutos</option>
@@ -611,85 +550,120 @@ function FlowCard({ envId, flow }: { envId: string; flow: Flow }) {
             <option value="daily">Dia</option>
             <option value="custom">Avançado (cron)</option>
           </select>
-
           {schedule.mode === 'daily' && (
             <Input
               type="time"
               value={schedule.time}
-              disabled={!enabled}
-              onChange={e => setSchedule({ ...schedule, time: e.target.value })}
-              className="border-border bg-background text-sm h-8 w-28"
+              onChange={e => touch(setSchedule)({ ...schedule, time: e.target.value })}
+              className="border-border bg-background text-xs h-8 w-26"
             />
           )}
-
           {schedule.mode === 'custom' && (
             <Input
               value={schedule.raw}
-              disabled={!enabled}
-              onChange={e => setSchedule({ ...schedule, raw: e.target.value })}
+              onChange={e => touch(setSchedule)({ ...schedule, raw: e.target.value })}
               placeholder="*/30 * * * *"
-              className="border-border bg-background text-sm h-8 font-mono w-40"
+              className="border-border bg-background text-xs h-8 font-mono w-36"
             />
           )}
+
+          <div className="flex items-center gap-1.5 ml-2">
+            <span className="text-xs text-muted-foreground">Modo debug</span>
+            <Toggle checked={debug} onChange={touch(setDebug)} label={`Modo debug de ${meta.label}`} />
+          </div>
         </div>
-        <p className="text-xs text-muted-foreground">
-          {scheduleSummary(schedule)}
-          {schedule.mode !== 'custom' && <span className="font-mono text-muted-foreground/60"> · {scheduleToCron(schedule)}</span>}
-        </p>
-      </div>
-      <div className="flex items-center gap-2">
-        <Button size="sm" onClick={handleSave} disabled={updateFlow.isPending} className="gap-1.5 h-8">
-          {updateFlow.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : saved ? <CheckCircle2 className="w-3 h-3 text-emerald-400" /> : <Save className="w-3 h-3" />}
-          {saved ? 'Salvo!' : 'Salvar'}
-        </Button>
-        {updateFlow.error && <p className="text-xs text-red-400">{updateFlow.error.message}</p>}
-      </div>
+      )}
+
+      {(dirty || updateFlow.error) && (
+        <div className="mt-3 flex items-center gap-2">
+          <Button size="sm" onClick={handleSave} disabled={updateFlow.isPending} className="gap-1.5 h-8">
+            {updateFlow.isPending ? <Loader2 className="w-3 h-3 animate-spin" /> : saved ? <CheckCircle2 className="w-3 h-3 text-emerald-300" /> : <Save className="w-3 h-3" />}
+            {saved ? 'Salvo!' : 'Salvar alterações'}
+          </Button>
+          {updateFlow.error && <p className="text-xs text-red-400">{updateFlow.error.message}</p>}
+        </div>
+      )}
     </div>
   )
 }
 
-// ─── Tab: Automações ──────────────────────────────────────────────────────────────
+// ─── Configurações do ambiente (seções empilhadas) ────────────────────────────
 
-const ALL_FLOWS: FlowKey[] = ['products', 'orders', 'contacts', 'wishlist']
-
-function FluxosTab({ envId }: { envId: string }) {
+function EnvironmentSettings({ envId }: { envId: string }) {
   const { data: env, isLoading } = useEnvironment(envId)
 
-  if (isLoading) return <div className="space-y-3 py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-36 rounded-xl" />)}</div>
+  if (isLoading) {
+    return <div className="space-y-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-44 w-full rounded-2xl" />)}</div>
+  }
   if (!env) return <p className="text-sm text-muted-foreground py-4">Ambiente não encontrado.</p>
 
   const flowsByKey = new Map(env.flows.map(f => [f.flow, f]))
+  const flowKeys: FlowKey[] = ['products', 'orders', 'contacts', 'wishlist']
 
   return (
-    <div className="py-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
-      {ALL_FLOWS.map(key => {
-        const flow = flowsByKey.get(key) ?? { flow: key, enabled: false, cronExpression: null, settings: {} }
-        return <FlowCard key={key} envId={envId} flow={flow} />
-      })}
+    <div className="space-y-6">
+      <SettingsSection title="Credenciais VTEX" description="API do catálogo, OMS e Master Data" icon={KeyRound}>
+        <ConnectionGroup envId={envId} connections={env.connections} kinds={['vtex', 'vtex_io_app']} />
+      </SettingsSection>
+
+      <SettingsSection title="Credenciais SAP Emarsys" description="Contacts API v3, Sales Data e WSSE" icon={Shield}>
+        <ConnectionGroup envId={envId} connections={env.connections} kinds={['emarsys_oauth2', 'emarsys_sales_api', 'emarsys_wsse']} />
+      </SettingsSection>
+
+      <SettingsSection title="Entrega de dados" description="Canais de entrada e saída de arquivos/eventos" icon={Send}>
+        <ConnectionGroup envId={envId} connections={env.connections} kinds={['sftp_products', 'contacts_webhook']} />
+      </SettingsSection>
+
+      <SettingsSection title="Mapeamento de campos Emarsys" description="Field IDs custom da conta Emarsys deste ambiente" icon={MapIcon}>
+        <FieldMappingsSection envId={envId} env={env} />
+      </SettingsSection>
+
+      <SettingsSection title="Automações" description="Agendamento e modo de execução por fluxo" icon={Zap}>
+        <div className="divide-y divide-border">
+          {flowKeys.map(key => (
+            <FlowRow
+              key={`${envId}-${key}`}
+              envId={envId}
+              flow={flowsByKey.get(key) ?? { flow: key, enabled: false, cronExpression: null, settings: {} }}
+            />
+          ))}
+        </div>
+      </SettingsSection>
     </div>
   )
 }
 
-// ─── Page principal ───────────────────────────────────────────────────────────
+// ─── Página ───────────────────────────────────────────────────────────────────
 
 export default function ClienteDetailPage({ params }: { params: Promise<{ slug: string }> }) {
   const { slug } = use(params)
   const { data: tenant, isLoading } = useTenant(slug)
-  const [selectedEnv, setSelectedEnv] = useState<Environment | null>(null)
-  const [mainTab, setMainTab] = useState('dados')
+  const createEnv = useCreateEnvironment(slug)
+  const [activeEnvId, setActiveEnvId] = useState<string | null>(null)
+  const [dialogOpen, setDialogOpen] = useState(false)
 
-  // Quando o usuário seleciona um ambiente, muda automaticamente pra tab Conexões
-  function handleSelectEnv(env: Environment) {
-    setSelectedEnv(env)
-    setMainTab('conexoes')
+  const environments: Environment[] = tenant?.environments ?? []
+  // Seleciona o primeiro ambiente automaticamente
+  useEffect(() => {
+    if (!activeEnvId && environments.length) setActiveEnvId(environments[0].id)
+  }, [environments, activeEnvId])
+
+  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<z.infer<typeof createEnvSchema>>({
+    resolver: zodResolver(createEnvSchema),
+  })
+
+  async function onCreateEnv(values: z.infer<typeof createEnvSchema>) {
+    const created = await createEnv.mutateAsync(values)
+    reset()
+    setDialogOpen(false)
+    if (created?.id) setActiveEnvId(created.id)
   }
 
   return (
-    <div className="space-y-6 py-6">
-      {/* Breadcrumb */}
+    <div className="py-6 space-y-6 max-w-[1200px] mx-auto">
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.4 }}>
         <Link href="/clientes" className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors mb-4">
-          <ArrowLeft className="w-3 h-3" /> Clientes
+          <ArrowLeft className="w-3 h-3" aria-hidden="true" /> Clientes
         </Link>
         <div className="flex items-center gap-3">
           {isLoading ? (
@@ -706,61 +680,86 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ slug: 
         </div>
       </motion.div>
 
-      {/* Seletor de ambiente (quando estamos em Conexões/Campos/Fluxos) */}
-      {selectedEnv && ['conexoes', 'campos', 'fluxos'].includes(mainTab) && (
-        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="flex items-center gap-3 p-3 rounded-xl bg-accent/40 border border-border">
-          <span className="text-xs text-muted-foreground">Ambiente:</span>
-          <div className="relative flex-1 max-w-xs">
-            <select
-              value={selectedEnv.id}
-              onChange={e => {
-                const env = tenant?.environments.find(v => v.id === e.target.value)
-                if (env) setSelectedEnv(env)
-              }}
-              className="w-full text-xs rounded-lg border border-border bg-background px-3 py-1.5 text-foreground focus:outline-none focus:ring-1 focus:ring-primary"
-            >
-              {tenant?.environments.map(env => (
-                <option key={env.id} value={env.id}>{env.name} ({env.slug})</option>
-              ))}
-            </select>
-          </div>
-          <AlertCircle className="w-3.5 h-3.5 text-muted-foreground" />
-          <span className="text-xs text-muted-foreground">Alterações afetam apenas este ambiente</span>
-        </motion.div>
-      )}
-
-      {/* Tabs principais */}
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }}>
-        <Tabs value={mainTab} onValueChange={v => { setMainTab(v); if (v === 'ambientes') setSelectedEnv(null) }}>
+        <Tabs defaultValue="config">
           <TabsList className="mb-4">
-            <TabsTrigger value="dados">Dados</TabsTrigger>
-            <TabsTrigger value="ambientes">Ambientes</TabsTrigger>
-            <TabsTrigger value="conexoes" disabled={!selectedEnv}>Conexoes</TabsTrigger>
-            <TabsTrigger value="campos" disabled={!selectedEnv}>Campos Emarsys</TabsTrigger>
-            <TabsTrigger value="fluxos" disabled={!selectedEnv}>Automações</TabsTrigger>
+            <TabsTrigger value="config">Configurações</TabsTrigger>
+            <TabsTrigger value="dados">Dados do cliente</TabsTrigger>
           </TabsList>
+
+          <TabsContent value="config">
+            {/* Pills de ambiente */}
+            <div className="flex items-center gap-2 mb-6 flex-wrap">
+              {environments.map(env => (
+                <button
+                  key={env.id}
+                  onClick={() => setActiveEnvId(env.id)}
+                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                    activeEnvId === env.id
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
+                  }`}
+                >
+                  {env.name}
+                </button>
+              ))}
+              <button
+                onClick={() => setDialogOpen(true)}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-card border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all flex items-center gap-1.5"
+              >
+                <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Novo ambiente
+              </button>
+            </div>
+
+            {isLoading ? (
+              <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 w-full rounded-2xl" />)}</div>
+            ) : !environments.length ? (
+              <div className="p-10 rounded-2xl border border-dashed border-border bg-card/50 flex flex-col items-center gap-3 text-center">
+                <Zap className="w-10 h-10 text-muted-foreground/40" aria-hidden="true" />
+                <p className="text-sm font-medium text-foreground">Este cliente ainda não tem ambientes</p>
+                <p className="text-xs text-muted-foreground max-w-sm">
+                  Um ambiente representa uma loja/conta (ex: loja principal, outlet). Crie o primeiro para configurar credenciais e automações.
+                </p>
+                <Button size="sm" className="gap-1.5 mt-1" onClick={() => setDialogOpen(true)}>
+                  <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Criar primeiro ambiente
+                </Button>
+              </div>
+            ) : activeEnvId ? (
+              <EnvironmentSettings key={activeEnvId} envId={activeEnvId} />
+            ) : null}
+          </TabsContent>
 
           <TabsContent value="dados">
             <DadosTab slug={slug} />
           </TabsContent>
-
-          <TabsContent value="ambientes">
-            <AmbientesTab slug={slug} onSelectEnv={handleSelectEnv} />
-          </TabsContent>
-
-          <TabsContent value="conexoes">
-            {selectedEnv ? <ConexoesTab envId={selectedEnv.id} /> : <p className="text-sm text-muted-foreground py-4">Selecione um ambiente na aba Ambientes.</p>}
-          </TabsContent>
-
-          <TabsContent value="campos">
-            {selectedEnv ? <CamposTab envId={selectedEnv.id} /> : <p className="text-sm text-muted-foreground py-4">Selecione um ambiente na aba Ambientes.</p>}
-          </TabsContent>
-
-          <TabsContent value="fluxos">
-            {selectedEnv ? <FluxosTab envId={selectedEnv.id} /> : <p className="text-sm text-muted-foreground py-4">Selecione um ambiente na aba Ambientes.</p>}
-          </TabsContent>
         </Tabs>
       </motion.div>
+
+      {/* Dialog: novo ambiente */}
+      <Dialog open={dialogOpen} onOpenChange={v => { if (!v) { reset(); setDialogOpen(false) } }}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader><DialogTitle>Novo ambiente</DialogTitle></DialogHeader>
+          <form onSubmit={handleSubmit(onCreateEnv)} className="space-y-4 mt-2" noValidate>
+            <div className="space-y-1">
+              <label htmlFor="envSlug" className="text-sm font-medium text-foreground">Slug</label>
+              <Input id="envSlug" placeholder="ex: producao" className="border-border bg-accent font-mono" aria-invalid={!!errors.slug} {...register('slug')} />
+              {errors.slug && <p className="text-xs text-red-400">{errors.slug.message}</p>}
+            </div>
+            <div className="space-y-1">
+              <label htmlFor="envName" className="text-sm font-medium text-foreground">Nome</label>
+              <Input id="envName" placeholder="ex: Produção" className="border-border bg-accent" aria-invalid={!!errors.name} {...register('name')} />
+              {errors.name && <p className="text-xs text-red-400">{errors.name.message}</p>}
+            </div>
+            <DialogFooter className="gap-2">
+              <Button type="button" variant="outline" onClick={() => { reset(); setDialogOpen(false) }}>Cancelar</Button>
+              <Button type="submit" disabled={isSubmitting || createEnv.isPending}>
+                {(isSubmitting || createEnv.isPending) ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : null}
+                Criar ambiente
+              </Button>
+            </DialogFooter>
+          </form>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }
