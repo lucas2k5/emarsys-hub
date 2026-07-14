@@ -39,10 +39,11 @@ const OVERLAP_MS = 60 * 60 * 1000; // 1h de sobreposição sobre o checkpoint
 function requireVtexConfig(ctx: EnvironmentContext): VtexOrdersConfig {
   const vtex = ctx.connections.vtex;
   if (!vtex) throw new Error('Connection "vtex" não configurada para este environment');
-  const baseUrl = vtex.config.baseUrl;
+  // Endpoint específico do fluxo, com fallback pro baseUrl legado
+  const baseUrl = vtex.config.ordersEndpoint || vtex.config.baseUrl;
   const appKey = vtex.config.appKey || vtex.secrets.appKey;
   const appToken = vtex.secrets.appToken || vtex.config.appToken;
-  if (!baseUrl) throw new Error('Connection "vtex": baseUrl não configurada');
+  if (!baseUrl) throw new Error('Connection "vtex": Endpoint Pedidos não configurado');
   if (!appKey || !appToken) throw new Error('Connection "vtex": appKey/appToken não configurados');
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),

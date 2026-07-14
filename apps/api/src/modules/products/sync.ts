@@ -17,10 +17,11 @@ import { uploadBufferToSftp } from './sftp.js';
 function requireVtexConfig(ctx: EnvironmentContext): VtexProductsConfig {
   const vtex = ctx.connections.vtex;
   if (!vtex) throw new Error('Connection "vtex" não configurada para este environment');
-  const baseUrl = vtex.config.baseUrl;
+  // Endpoint específico do fluxo, com fallback pro baseUrl legado
+  const baseUrl = vtex.config.productsEndpoint || vtex.config.baseUrl;
   const appKey = vtex.config.appKey || vtex.secrets.appKey;
   const appToken = vtex.secrets.appToken || vtex.config.appToken;
-  if (!baseUrl) throw new Error('Connection "vtex": baseUrl não configurada');
+  if (!baseUrl) throw new Error('Connection "vtex": Endpoint Produtos não configurado');
   if (!appKey || !appToken) throw new Error('Connection "vtex": appKey/appToken não configurados');
   return {
     baseUrl: baseUrl.replace(/\/+$/, ''),

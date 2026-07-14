@@ -59,8 +59,10 @@ type FieldDef = { key: string; label: string; placeholder?: string; isSecret?: b
 
 const CONNECTION_FIELDS: Record<ConnectionKind, FieldDef[]> = {
   vtex: [
-    { key: 'baseUrl', label: 'Base URL' },
     { key: 'appKey', label: 'App Key' },
+    { key: 'productsEndpoint', label: 'Endpoint Produtos (catálogo)' },
+    { key: 'masterDataEndpoint', label: 'Endpoint Master Data' },
+    { key: 'ordersEndpoint', label: 'Endpoint Pedidos (OMS)' },
     { key: 'storeBaseUrl', label: 'URL pública da loja (links de SKU)' },
     { key: 'appToken', label: 'App Token', isSecret: true },
   ],
@@ -589,35 +591,29 @@ function FlowRow({ envId, flow }: { envId: string; flow: Flow }) {
 
 // ─── Configurações do ambiente (seções empilhadas) ────────────────────────────
 
-function EnvironmentSettings({ envId }: { envId: string }) {
+type SettingsPart = 'credenciais' | 'campos' | 'automacoes'
+
+function EnvironmentSettings({ envId, part }: { envId: string; part: SettingsPart }) {
   const { data: env, isLoading } = useEnvironment(envId)
 
   if (isLoading) {
-    return <div className="space-y-4">{Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-44 w-full rounded-2xl" />)}</div>
+    return <div className="space-y-4">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-44 w-full rounded-2xl" />)}</div>
   }
   if (!env) return <p className="text-sm text-muted-foreground py-4">Ambiente não encontrado.</p>
 
   const flowsByKey = new Map(env.flows.map(f => [f.flow, f]))
   const flowKeys: FlowKey[] = ['products', 'orders', 'contacts', 'wishlist']
 
-  return (
-    <div className="space-y-6">
-      <SettingsSection title="Credenciais VTEX" description="API do catálogo, OMS e Master Data" icon={KeyRound}>
-        <ConnectionGroup envId={envId} connections={env.connections} kinds={['vtex', 'vtex_io_app']} />
-      </SettingsSection>
-
-      <SettingsSection title="Credenciais SAP Emarsys" description="Contacts API v3, Sales Data e WSSE" icon={Shield}>
-        <ConnectionGroup envId={envId} connections={env.connections} kinds={['emarsys_oauth2', 'emarsys_sales_api', 'emarsys_wsse']} />
-      </SettingsSection>
-
-      <SettingsSection title="Entrega de dados" description="Canais de entrada e saída de arquivos/eventos" icon={Send}>
-        <ConnectionGroup envId={envId} connections={env.connections} kinds={['sftp_products', 'contacts_webhook']} />
-      </SettingsSection>
-
+  if (part === 'campos') {
+    return (
       <SettingsSection title="Mapeamento de campos Emarsys" description="Field IDs custom da conta Emarsys deste ambiente" icon={MapIcon}>
         <FieldMappingsSection envId={envId} env={env} />
       </SettingsSection>
+    )
+  }
 
+  if (part === 'automacoes') {
+    return (
       <SettingsSection title="Automações" description="Agendamento e modo de execução por fluxo" icon={Zap}>
         <div className="divide-y divide-border">
           {flowKeys.map(key => (
@@ -628,6 +624,22 @@ function EnvironmentSettings({ envId }: { envId: string }) {
             />
           ))}
         </div>
+      </SettingsSection>
+    )
+  }
+
+  return (
+    <div className="space-y-6">
+      <SettingsSection title="Credenciais VTEX" description="App key/token e endpoints por fluxo (catálogo, Master Data e OMS)" icon={KeyRound}>
+        <ConnectionGroup envId={envId} connections={env.connections} kinds={['vtex']} />
+      </SettingsSection>
+
+      <SettingsSection title="Credenciais SAP Emarsys" description="Contacts API v3, Sales Data e WSSE" icon={Shield}>
+        <ConnectionGroup envId={envId} connections={env.connections} kinds={['emarsys_oauth2', 'emarsys_sales_api', 'emarsys_wsse']} />
+      </SettingsSection>
+
+      <SettingsSection title="Entrega de dados" description="Canais de entrada e saída de arquivos/eventos" icon={Send}>
+        <ConnectionGroup envId={envId} connections={env.connections} kinds={['sftp_products', 'contacts_webhook']} />
       </SettingsSection>
     </div>
   )
@@ -681,53 +693,57 @@ export default function ClienteDetailPage({ params }: { params: Promise<{ slug: 
       </motion.div>
 
       <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.1, duration: 0.5 }}>
-        <Tabs defaultValue="config">
+        {/* Pills de ambiente — valem para Credenciais, Campos e Automações */}
+        <div className="flex items-center gap-2 mb-5 flex-wrap">
+          {environments.map(env => (
+            <button
+              key={env.id}
+              onClick={() => setActiveEnvId(env.id)}
+              className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+                activeEnvId === env.id
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
+              }`}
+            >
+              {env.name}
+            </button>
+          ))}
+          <button
+            onClick={() => setDialogOpen(true)}
+            className="px-4 py-2 rounded-lg text-sm font-medium bg-card border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all flex items-center gap-1.5"
+          >
+            <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Novo ambiente
+          </button>
+        </div>
+
+        <Tabs defaultValue="credenciais">
           <TabsList className="mb-4">
-            <TabsTrigger value="config">Configurações</TabsTrigger>
+            <TabsTrigger value="credenciais">Credenciais</TabsTrigger>
+            <TabsTrigger value="campos" disabled={!activeEnvId}>Campos Emarsys</TabsTrigger>
+            <TabsTrigger value="automacoes" disabled={!activeEnvId}>Automações</TabsTrigger>
             <TabsTrigger value="dados">Dados do cliente</TabsTrigger>
           </TabsList>
 
-          <TabsContent value="config">
-            {/* Pills de ambiente */}
-            <div className="flex items-center gap-2 mb-6 flex-wrap">
-              {environments.map(env => (
-                <button
-                  key={env.id}
-                  onClick={() => setActiveEnvId(env.id)}
-                  className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${
-                    activeEnvId === env.id
-                      ? 'bg-primary text-primary-foreground'
-                      : 'bg-card border border-border text-muted-foreground hover:text-foreground hover:border-primary/30'
-                  }`}
-                >
-                  {env.name}
-                </button>
-              ))}
-              <button
-                onClick={() => setDialogOpen(true)}
-                className="px-4 py-2 rounded-lg text-sm font-medium bg-card border border-dashed border-border text-muted-foreground hover:text-foreground hover:border-primary/40 transition-all flex items-center gap-1.5"
-              >
-                <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Novo ambiente
-              </button>
-            </div>
-
-            {isLoading ? (
-              <div className="space-y-4">{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} className="h-44 w-full rounded-2xl" />)}</div>
-            ) : !environments.length ? (
-              <div className="p-10 rounded-2xl border border-dashed border-border bg-card/50 flex flex-col items-center gap-3 text-center">
-                <Zap className="w-10 h-10 text-muted-foreground/40" aria-hidden="true" />
-                <p className="text-sm font-medium text-foreground">Este cliente ainda não tem ambientes</p>
-                <p className="text-xs text-muted-foreground max-w-sm">
-                  Um ambiente representa uma loja/conta (ex: loja principal, outlet). Crie o primeiro para configurar credenciais e automações.
-                </p>
-                <Button size="sm" className="gap-1.5 mt-1" onClick={() => setDialogOpen(true)}>
-                  <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Criar primeiro ambiente
-                </Button>
-              </div>
-            ) : activeEnvId ? (
-              <EnvironmentSettings key={activeEnvId} envId={activeEnvId} />
-            ) : null}
-          </TabsContent>
+          {(['credenciais', 'campos', 'automacoes'] as const).map(part => (
+            <TabsContent key={part} value={part}>
+              {isLoading ? (
+                <div className="space-y-4">{Array.from({ length: 2 }).map((_, i) => <Skeleton key={i} className="h-44 w-full rounded-2xl" />)}</div>
+              ) : !environments.length ? (
+                <div className="p-10 rounded-2xl border border-dashed border-border bg-card/50 flex flex-col items-center gap-3 text-center">
+                  <Zap className="w-10 h-10 text-muted-foreground/40" aria-hidden="true" />
+                  <p className="text-sm font-medium text-foreground">Este cliente ainda não tem ambientes</p>
+                  <p className="text-xs text-muted-foreground max-w-sm">
+                    Um ambiente representa uma loja/conta (ex: loja principal, outlet). Crie o primeiro para configurar credenciais e automações.
+                  </p>
+                  <Button size="sm" className="gap-1.5 mt-1" onClick={() => setDialogOpen(true)}>
+                    <Plus className="w-3.5 h-3.5" aria-hidden="true" /> Criar primeiro ambiente
+                  </Button>
+                </div>
+              ) : activeEnvId ? (
+                <EnvironmentSettings key={`${activeEnvId}-${part}`} envId={activeEnvId} part={part} />
+              ) : null}
+            </TabsContent>
+          ))}
 
           <TabsContent value="dados">
             <DadosTab slug={slug} />
